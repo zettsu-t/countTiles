@@ -36,6 +36,10 @@ class TileSet
     1.upto(9) do |extraTile|
       # 14牌にする
       tiles = @tiles.dup.concat([extraTile]).sort
+
+      # 同種の牌が多すぎる
+      next if tiles.map(&:to_s).join.match(/(\d)\1{#{SIZE_OF_A_TILE},}/)
+
       # 解を探して待ち牌に印をつける
       solutions.concat(markExtraTile(search(tiles, false), extraTile.to_s))
     end
@@ -173,6 +177,19 @@ class TileSetTestCases
 
   # 例題を解く
   def check
+    # 同じ牌が5つ以上あったら検出する
+    1.upto(SIZE_OF_A_TILE) do |n|
+      middleStr = "5" * n
+      str = "1234" + middleStr + "6789"
+      raise TestingFailed if str.match(/(\d)\1{#{SIZE_OF_A_TILE},}/)
+    end
+
+    (SIZE_OF_A_TILE+1).upto(SIZE_OF_A_TILE+3) do |n|
+      middleStr = "5" * n
+      str = "1234" + middleStr + "6789"
+      raise TestingFailed unless str.match(/(\d)\1{#{SIZE_OF_A_TILE},}/)
+    end
+
     [["1112224588899", ["(111)(222)(888)(99)[45]"]],
      ["1122335556799", ["(123)(123)(55)(567)[99]", "(123)(123)(555)(99)[67]", "(123)(123)(567)(99)[55]"]],
      ["1112223335559", ["(111)(222)(333)(555)[9]", "(123)(123)(123)(555)[9]"]],
