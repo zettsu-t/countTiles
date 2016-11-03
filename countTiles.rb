@@ -8,14 +8,31 @@
 #   ruby countTiles.rb (このスクリプト名)
 # 起動すると、標準入力から手牌(1-9の数字13桁)が入力されるのを待つので、
 # 入力してenterを押すと、手牌の待ちを出力する
-# 引数を指定すると、引数で指定した回数のテストを実行する
+#
+# 引数を指定すると、テストを実行し、入力を待たずに終了する。
+# 引数に1を指定すると、清一色の全組み合わせについてテストする
+# 引数に2以上を指定すると、引数で指定した回数のテストを実行する
 
 SIZE_OF_COMPLETE_TILES = 14.freeze  # あがるときの牌の数
-KIND_OF_TILES = 9.freeze   # 牌の種類
-SIZE_OF_A_TILE = 4.freeze  # 同種の牌の数
+MIN_TILE_NUMBER = 1.freeze  # 最も数字が小さい牌
+MAX_TILE_NUMBER = 9.freeze  # 最も数字が大きい牌
+SIZE_OF_A_TILE =  4.freeze  # 同種の牌の数
+
+# テスト回数が0回なら入力を待つ
+# テスト回数が1回なら、清一色の全組み合わせについてテストする
+ARG_COUNT_DEFAULT = 0.freeze
+ARG_COUNT_ENUMERATE_TILES = 1.freeze
 
 # 不正な入力値
 class InvalidInputError < StandardError
+end
+
+# 同種の牌が多すぎる
+class TooManyTilesForKind
+  attr_reader :value
+  def initialize(tiles)
+    @value = tiles.map(&:to_s).join.match(/(\d)\1{#{SIZE_OF_A_TILE},}/)
+  end
 end
 
 class TileSet
@@ -24,7 +41,8 @@ class TileSet
     # それぞれの牌は1-9で、これらからなる連続13文字とする。
     # 行頭の空白と、13文字の後の空白および空白以後の余分な文字は無視する。
     # 処理しやすいよう、1から9(昇順)にソートする
-    @tiles = line.chomp.strip.match(/^(\S+)/)[1].split("").map{ |c| c.to_i }.sort
+    tiles = line.chomp.strip.match(/^(\S+)/)[1].split("").map{ |c| c.to_i }
+    @tiles = tiles.sort.reject { |i| (i < MIN_TILE_NUMBER) || (i > MAX_TILE_NUMBER) }
     raise InvalidInputError if @tiles.size != (SIZE_OF_COMPLETE_TILES - 1)
   end
 
@@ -33,20 +51,21 @@ class TileSet
     solutions = []
 
     # 待ち牌を決め打ちして、14牌があがり型を成しているかどうか調べる
-    1.upto(9) do |extraTile|
+    MIN_TILE_NUMBER.upto(MAX_TILE_NUMBER) do |extraTile|
       # 14牌にする
       tiles = @tiles.dup.concat([extraTile]).sort
 
       # 同種の牌が多すぎる
-      next if tiles.map(&:to_s).join.match(/(\d)\1{#{SIZE_OF_A_TILE},}/)
+      next if TooManyTilesForKind.new(tiles).value
 
       # 解を探して待ち牌に印をつける
       solutions.concat(markExtraTile(search(tiles, false), extraTile.to_s))
     end
 
     # 解を表示する。同じものは一回だけ表示する。
-    # 解がなければ空行にする
-    solutions.sort.uniq.join("\n") + "\n"
+    # 解がなければ、C++, Haskell版にあわせて(none)にする
+    str = solutions.sort.uniq.join("\n")
+    (str.empty? ? "(none)" : str) + "\n"
   end
 
   # 待ち牌がある対子,刻子,順子を特定して、()[]表記を作る
@@ -203,6 +222,17 @@ class TileSetTestCases
       expected = solutions.sort.uniq.join("\n") + "\n"
       raise TestingFailed if actual != expected
     end
+
+    # 不正な入力には例外を投げる
+    ["111222458889", "111222458889x", "0001112223334"].each do |line|
+      caught = false
+      begin
+        TileSet.new(line).searchAll
+      rescue InvalidInputError
+        caught = true
+      end
+      raise TestingFailed unless caught
+    end
   end
 
   # あがり型かどうか無視して13牌集めたものを解く
@@ -210,7 +240,7 @@ class TileSetTestCases
     1.upto(@testSize) do |i|
       pattern = getRandomPattern
       actual = TileSet.new(pattern.join("")).searchAll
-      checkTiles(actual, nil)
+      checkTiles(pattern, actual, nil)
     end
   end
 
@@ -218,6 +248,8 @@ class TileSetTestCases
   def checkCompletePattern
     1.upto(@testSize) do |i|
       basePattern = getCompletePattern
+      # 同種の牌が多すぎる
+      next if TooManyTilesForKind.new(basePattern).value
 
       # 1牌抜いて、それが待ち牌であることを確認する
       0.upto(basePattern.size - 1) do |position|
@@ -226,7 +258,7 @@ class TileSetTestCases
         pattern.delete_at(position)
 
         actual = TileSet.new(pattern.join("")).searchAll
-        checkTiles(actual, extraTile)
+        checkTiles(pattern, actual, extraTile)
       end
     end
   end
@@ -234,7 +266,7 @@ class TileSetTestCases
   # 待ち方が成立しているかどうか調べる
   # actual : TileSetの出力結果
   # extraTile : 待ち牌 = あがりから抜いた牌(なければnil)
-  def checkTiles(actual, extraTile)
+  def checkTiles(pattern, actual, extraTile)
     # 待ち牌を見つけた
     foundTile = false
 
@@ -273,13 +305,17 @@ class TileSetTestCases
     end
 
     # 抜いた牌はいずれかの形で待ち牌になっている
-    raise TestingFailed if extraTile && !foundTile
+    # 同種の牌が多すぎると待てないが、そのようなテストは入力しない
+    if extraTile && !foundTile
+      str = pattern.join + "\nactual:\n#{actual}\nextraTile:#{extraTile}\n"
+      raise TestingFailed.new(str)
+    end
     0
   end
 
   # あがり型かどうか無視して13牌集める
   def getRandomPattern
-    candidates = (1..KIND_OF_TILES).map{ |i| Array.new(SIZE_OF_A_TILE, i.to_s) }.flatten
+    candidates = (MIN_TILE_NUMBER..MAX_TILE_NUMBER).map{ |i| Array.new(SIZE_OF_A_TILE, i.to_s) }.flatten
 
     tiles = []
     1.upto(SIZE_OF_COMPLETE_TILES - 1) do |i|
@@ -295,7 +331,7 @@ class TileSetTestCases
   # あがり型の14牌集める
   def getCompletePattern
     candidates = {}
-    (1..KIND_OF_TILES).each { |i| candidates[i] = SIZE_OF_A_TILE }
+    (MIN_TILE_NUMBER..MAX_TILE_NUMBER).each { |i| candidates[i] = SIZE_OF_A_TILE }
     tiles = []
 
     # 刻子ができすぎないように、刻子の出現確率をランダムに変える
@@ -306,7 +342,7 @@ class TileSetTestCases
     while(tiles.size < (SIZE_OF_COMPLETE_TILES - 2))
       size = 3
       # randは0が先頭
-      n = 1 + @random.rand(candidates.size)
+      n = MIN_TILE_NUMBER + @random.rand(candidates.size)
       if @random.rand(levelOfTriple) <= thresholdOfTriple
         # 刻子を作る
         if (candidates[n] >= size)
@@ -315,7 +351,7 @@ class TileSetTestCases
         candidates[n] -= size
       else
         # 順子を作る
-        if (n <= (KIND_OF_TILES - size + 1)) && (0..(size - 1)).all? { |i| candidates[n + i] > 0 }
+        if (n <= (MAX_TILE_NUMBER - size + 1)) && (0..(size - 1)).all? { |i| candidates[n + i] > 0 }
           0.upto(size - 1) do |i|
             tiles << n + i
             candidates[n + 1] -= 1
@@ -327,7 +363,7 @@ class TileSetTestCases
     # 対子を作る
     while(tiles.size < SIZE_OF_COMPLETE_TILES)
       # randは0が先頭
-      n = 1 + @random.rand(candidates.size)
+      n = MIN_TILE_NUMBER + @random.rand(candidates.size)
       size = 2
       if (candidates[n] >= size)
         size.times { tiles << n }
@@ -337,19 +373,53 @@ class TileSetTestCases
 
     tiles.sort
   end
+
+  # 清一色の全組み合わせについてテストする
+  def checkAllPattern
+    enumerateTiles([], 1, SIZE_OF_COMPLETE_TILES - 1)
+  end
+
+  def checkPattern(pattern)
+    actual = TileSet.new(pattern.join).searchAll
+    checkTiles(pattern, actual, nil)
+    puts pattern.join + ":\n" + actual
+  end
+
+  def enumerateTiles(pattern, head, remaining)
+    if (remaining == 0)
+      checkPattern(pattern)
+      return
+    end
+
+    return if head > MAX_TILE_NUMBER
+
+    # 小さい番号の牌からたくさん集める(0個を含む)
+    [remaining, SIZE_OF_A_TILE].min.downto(0) do |i|
+      newPattern = pattern.dup
+      newPattern.concat([head] * i)
+      enumerateTiles(newPattern, head + 1, remaining - i)
+    end
+  end
 end
 
 # テストのサイズを引数で指定する
-testSize = 0
+testSize = ARG_COUNT_DEFAULT
 if ARGV.size > 0
   testSize = ARGV[0].to_i
 end
 
 testcase = TileSetTestCases.new(testSize)
 testcase.check
-testcase.checkRandomPattern
-testcase.checkCompletePattern
 
-puts "All tests passed >"
-puts TileSet.new(STDIN.gets).searchAll
+if testSize == ARG_COUNT_ENUMERATE_TILES
+  testcase.checkAllPattern
+elsif testSize > ARG_COUNT_ENUMERATE_TILES
+  testcase.checkRandomPattern
+  testcase.checkCompletePattern
+end
+
+puts "All tests passed"
+if testSize <= ARG_COUNT_DEFAULT
+  puts TileSet.new(STDIN.gets).searchAll
+end
 0

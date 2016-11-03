@@ -4,6 +4,10 @@
 -- 適用するので、プログラムは短いが、実行に数分掛かる。
 -- 可読性を無視して、コードを1Kbyte未満に短くしたものが countTilesShort.hs
 
+-- 入力方法
+-- countTilesSlow.hsは、引数として連続13文字の数字を受け付ける
+-- countTilesShort.hsは、起動後に連続13文字の数字を標準入力から受け付ける
+
 import Data.List
 import System.Environment (getArgs)
 
@@ -15,7 +19,7 @@ sizeOfInput = sizeOfParts * 3 - 2
 sizeOfStr = sizeOfParts * 5 - 2
 
 -- すべての刻子、順子、対子
-parts = (map (\i->[i..(i+2)]) [1..7]) ++ (concat $ map (\i->[[i, i ,i], [i, i]]) [1..9])
+parts = (map (\i->[i..(i+2)]) [1..7]) ++ (concatMap (\i->[[i, i ,i], [i, i]]) [1..9])
 
 -- 刻子、順子、対子の全組み合わせ
 tiles 0 = [[]]
@@ -39,18 +43,23 @@ hasQuint (a:b:c:d:e:xs) | (a == b) && (b == c) && (c == d) && (d == e) = True
 hasQuint (a:xs) = hasQuint xs
 
 -- 全文字列のうち、手配 + 待ち牌となりうるもの
-allTileSet ts e = concat $ map (toStrSet e) $ filter f $ tiles sizeOfParts
+allTileSet ts e = concatMap (toStrSet e) $ filter f $ tiles sizeOfParts
   where f l = ((sort $ ts ++ [e]) == (sort $ concat l)) && (hasQuint (sort (concat l)) == False)
 
 -- 全文字列のうち、手配 + 待ち牌となりうるもので、待ち形が成立するもの
-solveAll ts = formatLines $ filter f $ map foldToStr $ nub $ sort $ map sort $ concat $ map (allTileSet ts) [1..9]
+solveAll ts = formatLines $ filter f $ map foldToStr $ nub $ sort $ map sort $ concatMap (allTileSet ts) [1..9]
   where f s = (((length s) == sizeOfStr) && ((length ((s \\ "[") \\ "[")) == (sizeOfStr - 1)))
-        formatLines lines = intercalate "\n" $ map (filter (/= '"')) $ map show lines
+        formatLines lines = concatMap (++ "\n") $ map (filter (/= '"')) $ map show lines
+
+-- 手牌13牌(ts)の文字列から待ち形を求めてそれぞれ一行にする
+-- 数字以外の入力はエラーになる。0があると待ち無しになる。
+solveTileStr ts = solveAll $ take sizeOfInput $ (map (read . (:"")) $ take sizeOfInput (ts ++ dummy) :: [Int])
+  where dummy = concat $ replicate sizeOfInput "a"
 
 -- 引数として連続13文字の数字を受け付ける
--- countTilesShort.hsは、起動後に連続13文字の数字を受け付ける
+-- countTilesShort.hsは、起動後に連続13文字の数字を入力として受け付ける
 paramSet (n:xs) = n
 main = do
   args <- getArgs
   let (l) = paramSet args
-  putStrLn $ show $ solveAll $ take sizeOfInput $ (map (read . (:"")) l :: [Int])
+  putStr $ solveTileStr l

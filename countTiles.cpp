@@ -2,9 +2,6 @@
  * 出題元
  * http://www.itmedia.co.jp/enterprise/articles/1004/03/news002_2.html
  *
- * ビルド方法
- *   make (引数無し)
- * でコンパイル、リンク、実行、実行結果計測を行う
  * 清一色の全組み合わせについて、すべての待ちを4秒台で結果を出力する
  */
 
@@ -32,6 +29,9 @@
 #endif // DISABLE_VIRTUAL
 
 namespace CountTiles {
+    // 無効な入力に対する結果
+    const char ResultForInvalidInput[] = "(invalid input)\n";
+
     // 牌の種類を示す型
     using TileType = int;
     // 牌の数を示す型
@@ -571,8 +571,10 @@ namespace CountTiles {
                 }
 
                 auto tile = ConvertToTileType(c);
-                initialTable_[tile] += 1;
-                ++count;
+                if ((tile >= TileMin) && (tile <= TileMax)) {
+                    initialTable_[tile] += 1;
+                    ++count;
+                }
             }
 
             fail_ |= ((count + 1) != SizeOfCompleteTiles);
@@ -580,6 +582,14 @@ namespace CountTiles {
 
         TileFullSet(const TileTable& initialTable, TileStrTable& allStrTable) :
             initialTable_(initialTable), allStrTable_(allStrTable), fail_(false) {
+            size_t count = 0;
+            for(auto i=TileMin; i<=TileMax; ++i) {
+                if (initialTable_.find(i) != initialTable_.cend()) {
+                    count += initialTable_.at(i);
+                }
+            }
+
+            fail_ |= ((count + 1) != SizeOfCompleteTiles);
         }
 
         VIRTUAL_FUNC ~TileFullSet(void) = default;
@@ -589,6 +599,10 @@ namespace CountTiles {
         // 待ちをすべて探して文字列として返す
         VIRTUAL_FUNC const std::string SearchAll(void) {
             std::string str;
+            if (fail_) {
+                str += ResultForInvalidInput;
+                return str;
+            }
 
             for(const auto& e : initialTable_) {
                 table_.AddTiles(e.first, e.second);
@@ -666,6 +680,11 @@ namespace CountTiles {
                                   "(345)(678)(999)(11)[12]\n(123)(678)(999)(11)[45]\n(111)(234)(789)(99)[56]\n"
                                   "(111)(234)(678)(999)[5]\n(123)(456)(999)(11)[78]\n(111)(234)(567)(99)[89]\n"
                                   "(111)(234)(567)(999)[8]\n(123)(456)(789)(11)[99]\n");
+
+            // 不正な入力は解かない
+            failed |= executeTest("111222458889",  ResultForInvalidInput);
+            failed |= executeTest("111222458889x", ResultForInvalidInput);
+            failed |= executeTest("0001112223334", ResultForInvalidInput);
 
             return failed;
         }
