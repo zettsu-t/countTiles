@@ -6,12 +6,14 @@ TARGET_CPP=countTilesCpp
 TARGET_HS=countTilesHs
 TARGET_HS_SLOW=countTilesSlow
 TARGET_HS_SHORT=countTilesShort
-TARGETS=$(TARGET_CPP) $(TARGET_HS) $(TARGET_HS_SLOW) $(TARGET_HS_SHORT)
+TARGET_HS_EX=countTilesEx
+TARGETS=$(TARGET_CPP) $(TARGET_HS) $(TARGET_HS_SLOW) $(TARGET_HS_SHORT) $(TARGET_HS_EX)
 
 SOURCE_CPP=countTiles.cpp
 SOURCE_HS=countTiles.hs
 SOURCE_HS_SLOW=countTilesSlow.hs
 SOURCE_HS_SHORT=countTilesShort.hs
+SOURCE_HS_EX=countTilesEx.hs
 SOURCE_RUBY=countTiles.rb
 HS_CHECK=countTilesCheckHs.rb
 
@@ -20,7 +22,8 @@ LOG_HS=logHs.txt
 LOG_RUBY=logRuby.txt
 LOG_HS_SLOW=logHsSlow.txt
 LOG_HS_SHORT=logHsShort.txt
-LOGS=$(LOG_CPP) $(LOG_HS) $(LOG_RUBY) $(LOG_HS_SLOW) $(LOG_HS_SHORT)
+LOG_HS_EX=logHsEx.txt
+LOGS=$(LOG_CPP) $(LOG_HS) $(LOG_RUBY) $(LOG_HS_SLOW) $(LOG_HS_SHORT) $(LOG_HS_EX)
 
 # 出力形式が変わったら変える
 NUMBER_OR_PATTERNS=93600
@@ -64,7 +67,7 @@ check: $(TARGETS)
 	test $(call getfilesize, $(LOG_CPP)) -eq $(call getfilesize, $(LOG_RUBY))
 
 # 数分かかる
-checklong: $(TARGET_HS_SLOW) $(TARGET_HS_SHORT)
+checklong: $(TARGET_HS_SLOW) $(TARGET_HS_SHORT) $(TARGET_HS_EX)
 	$(RUBY) $(HS_CHECK)
 
 $(TARGET_CPP): $(SOURCE_CPP)
@@ -77,6 +80,9 @@ $(TARGET_HS_SLOW): $(SOURCE_HS_SLOW)
 	$(HASKELL) $(HASKELLFLAGS) -o $@ $<
 
 $(TARGET_HS_SHORT): $(SOURCE_HS_SHORT)
+	$(HASKELL) $(HASKELLFLAGS) -o $@ $<
+
+$(TARGET_HS_EX): $(SOURCE_HS_EX)
 	$(HASKELL) $(HASKELLFLAGS) -o $@ $<
 
 clean:

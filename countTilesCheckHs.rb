@@ -14,8 +14,9 @@ TEST_CASE_SET = [["1112224588899", "(111)(222)(888)(99)[45]\n"].map(&:freeze),
                 ].map(&:freeze).freeze
 
 # 実行ファイル名とログ出力先ファイル名
-EXECUTABLE_SET = [["./countTilesSlow", "logHsSlow.txt"].map(&:freeze),
-                  ["./countTilesShort", "logHsShort.txt"].map(&:freeze)
+EXECUTABLE_SET = [["./countTilesSlow",  "logHsSlow.txt"].map(&:freeze),
+                  ["./countTilesShort", "logHsShort.txt"].map(&:freeze),
+                  ["./countTilesEx",    "logHsEx.txt"].map(&:freeze)
                  ].map(&:freeze).freeze
 
 class TestCaseSet
@@ -49,14 +50,11 @@ class TestCaseSet
   end
 
   def exec(exeSet, arg)
-    pidSet = []
     # 並列実行
-    exeSet.each do |exename, logname|
+    exeSet.map do |exename, logname|
       command = "bash -c " + '"' + "echo #{arg} | #{exename} #{arg} > #{logname}" + '"'
-      pidSet << Process.spawn(command)
-    end
-
-    pidSet.each { |pid| Process.waitpid(pid) }
+      Process.spawn(command)
+    end.each { |pid| Process.waitpid(pid) }
   end
 end
 
