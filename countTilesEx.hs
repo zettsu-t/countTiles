@@ -17,23 +17,23 @@ c  s = concat s
 i  t = filter t
 n  a = sort   a
 d  r = length r
-e    = [who_is_in_the_pumpkin_carriage..sweet_is_a_magical_word_to_make_you_happy]
-re   = (o(\i->[i..i+2])[1..i_wonder_where_I_find_the_light_I_shine])++(c$o(\i->[[i,i,i],[i,i]])e)
+e  ! 0 = [who_is_in_the_pumpkin_carriage..sweet_is_a_magical_word_to_make_you_happy]
+re ! 0 = (o(\i->[i..i+2])[1..i_wonder_where_I_find_the_light_I_shine])++(c$o(\i->[[i,i,i],[i,i]])(e 0))
 l    0 = [[]]
-l    decoration = [candy:island|candy<-re,island<-(l(decoration-who_is_in_the_pumpkin_carriage))]
+l    decoration = [candy:island|candy<-(re 0),island<-(l(decoration - who_is_in_the_pumpkin_carriage))]
 a    = foldr(++)""
 
-p  s = c$o(++"\n")$o(i(/='"'))$r$i j$o a$nub$n$o n$c$o(t s)e
+p  s = c$o(++"\n")$o(i(/='"'))$r$i j$o a$nub$n$o n$c$o(t 0 s)(e 0)
 r  h = o show h
-o  i   yubaePresent =map i yubaePresent
+o  i   yubaePresent = map i yubaePresent
 j  n = (((d n)==glass_slippers)&&((d((n\\"[")\\"["))==the_best_place_to_see_the_stars))
 ec e = a$r e
-t    new generations=c$o(v[generations])$i(\i->((n$new++[generations])==(n$c i))&&not(w(n$c i)))
-                       $l i_don't_want_to_become_a_wallflower
+t  ! 0  new generations = c$o(v[generations])$i(\i->((n$new++[generations])==(n$c i))&&not(w(n$c i)))
+                            $l i_don't_want_to_become_a_wallflower
 
 w []=False
+w (g:o:i:n') | (d n') <= who_is_in_the_pumpkin_carriage = False
 w (m:a:g:i:c:_) | (m==a) && (a==g) && (g==i) && (i==c) = True
-w (g:o:i:n) | (d n) <= who_is_in_the_pumpkin_carriage = False
 w (rosenburg:engel) = w engel
 v _ [] = [[]]
 v asterisk (love:laika) =

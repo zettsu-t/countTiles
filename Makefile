@@ -1,4 +1,4 @@
-# countTiles*のコンパイルとテスト(7分程度掛かる)
+# countTiles*のコンパイルとテスト(8分程度掛かる)
 # 実行方法
 # $ make (引数なし)
 
@@ -65,6 +65,7 @@ check: $(TARGETS)
 	test $(call countnoneline, $(LOG_CPP)) -eq $(call countnoneline, $(LOG_RUBY))
 	test $(call getfilesize, $(LOG_CPP)) -eq $(call getfilesize, $(LOG_HS))
 	test $(call getfilesize, $(LOG_CPP)) -eq $(call getfilesize, $(LOG_RUBY))
+	$(RUBY) countTilesCompareLog.rb
 
 # 数分かかる
 checklong: $(TARGET_HS_SLOW) $(TARGET_HS_SHORT) $(TARGET_HS_EX)
@@ -83,7 +84,7 @@ $(TARGET_HS_SHORT): $(SOURCE_HS_SHORT)
 	$(HASKELL) $(HASKELLFLAGS) -o $@ $<
 
 $(TARGET_HS_EX): $(SOURCE_HS_EX)
-	$(HASKELL) $(HASKELLFLAGS) -o $@ $<
+	$(HASKELL) $(HASKELLFLAGS) -XBangPatterns -o $@ $<
 
 clean:
 	$(RM) $(TARGETS) $(LOGS) ./*.o ./*.hi

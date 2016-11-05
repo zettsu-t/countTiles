@@ -60,4 +60,4 @@ end
 
 result = TestCaseSet.new.testAll
 puts (result ? "All tests passed" : "Failed")
-result ? 0 : 1
+exit(result)
