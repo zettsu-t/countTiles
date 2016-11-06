@@ -1,6 +1,13 @@
-# countTiles*のコンパイルとテスト(8分程度掛かる)
+# countTiles*のコンパイルとテスト(10分程度掛かる)
 # 実行方法
 # $ make (引数なし)
+#
+# 動作確認を行った環境
+# - Windows 10
+# - Cygwin 64bit版 (2.6.0)
+# - LLVM/clang++ 3.8.1 (Cygwin)
+# - Ruby 2.2.5p319 (Cygwin)
+# - GHC 8.0.1 (Windows 64bit版)
 
 TARGET_CPP=countTilesCpp
 TARGET_HS=countTilesHs
