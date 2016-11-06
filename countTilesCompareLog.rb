@@ -62,6 +62,14 @@ class TileSet
         reportError(line) if @input.include?(numStrSet[0] * 4)
       elsif numSet.size == 2
         reportError(line) unless (numSet[0] == numSet[1]) || ((numSet[0] + 1) == numSet[1]) || ((numSet[0] + 2) == numSet[1])
+
+        key = numSet[0]
+        extraTiles = [key] if (key == numSet[1])
+        extraTiles = [key - 1, key + 2].select { |tile| (tile >= 1) && (tile <= 9) } if ((key + 1) == numSet[1])
+        extraTiles = [key + 1] if ((key + 2) == numSet[1])
+
+        # 5牌目は待てない
+        reportError(line) if extraTiles.all? { |tile| @input.include?(tile.to_s * 4) }
       else
         reportError(line)
       end
