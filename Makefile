@@ -16,6 +16,8 @@ TARGET_HS_SHORT=countTilesShort
 TARGET_HS_EX=countTilesEx
 TARGETS=$(TARGET_CPP) $(TARGET_HS) $(TARGET_HS_SLOW) $(TARGET_HS_SHORT) $(TARGET_HS_EX)
 
+OBJ_CPP=countTilesCpp.o
+
 SOURCE_CPP=countTiles.cpp
 SOURCE_HS=countTiles.hs
 SOURCE_HS_SLOW=countTilesSlow.hs
@@ -44,54 +46,75 @@ countnoneline=`test -f $1 && grep none $1 | wc -l`
 getfilesize=`test -f $1 && ls -nl $1 | cut --field=5 -d " "`
 
 CXX=clang++
+LD=g++
 HASKELL=ghc
 RUBY=ruby
 
+GCC_VERSION:=$(shell export LC_ALL=C ; gcc -v 2>&1 | tail -1 | cut -d " " -f 3)
+ifeq ($(OS),Windows_NT)
+ifeq (,$(findstring cygwin,$(shell gcc -dumpmachine)))
+BUILD_ON_MINGW=yes
+# MinGW 32bit版では異なる
+MINGW_CPPFLAGS=-D__NO_INLINE__ $(addprefix -I , C:\MinGW\include C:\MinGW\include\c++\$(GCC_VERSION) C:\MinGW\include\c++\$(GCC_VERSION)\x86_64-w64-mingw32 C:\MinGW\x86_64-w64-mingw32\include C:\MinGW\lib\gcc\x86_64-w64-mingw32\$(GCC_VERSION)\include) -target x86_64-pc-windows-gnu
+endif
+else
+# 追加のライブラリパスがあれば設定する
+EXTRA_LDFLAGS=
+endif
+
 # virtualをなくすと速くなる
 EXTRA_CPPFLAGS=-DDISABLE_VIRTUAL
-CPPFLAGS=-std=c++14 -Wall -O2 $(EXTRA_CPPFLAGS)
+CPPFLAGS=-std=c++14 -Wall -O2 $(EXTRA_CPPFLAGS) $(MINGW_CPPFLAGS)
 LIBS=
-LDFLAGS=
+LDFLAGS=$(EXTRA_LDFLAGS)
 HASKELLFLAGS=-O
 
-.PHONY: all check checklong clean rebuild
+.PHONY: all check checkcpp checklong clean rebuild
 
 all: check checklong
 
-check: $(TARGETS)
-	$(call execute, ./$(TARGET_CPP), , $(LOG_CPP))
-	$(call countcases, $(LOG_CPP))
-	grep invalid $(LOG_CPP) | wc | grep " 0 "
-	test $(call countnoneline, $(LOG_CPP)) -eq $(NUMBER_OR_NONE_LINES)
-	test $(call getfilesize, $(LOG_CPP)) -eq $(SIZE_OF_LOG)
+check: $(TARGETS) checkcpp
 	$(call execute, ./$(TARGET_HS), test, $(LOG_HS))
 	$(call countcases, $(LOG_HS))
 	$(call execute,$(RUBY) $(SOURCE_RUBY), 1, $(LOG_RUBY))
 	$(call countcases, $(LOG_RUBY))
+ifeq ($(BUILD_ON_MINGW),)
 	test $(call countnoneline, $(LOG_CPP)) -eq $(call countnoneline, $(LOG_HS))
 	test $(call countnoneline, $(LOG_CPP)) -eq $(call countnoneline, $(LOG_RUBY))
 	test $(call getfilesize, $(LOG_CPP)) -eq $(call getfilesize, $(LOG_HS))
 	test $(call getfilesize, $(LOG_CPP)) -eq $(call getfilesize, $(LOG_RUBY))
+endif
 	$(RUBY) countTilesCompareLog.rb
+
+# C++版だけ確認する
+checkcpp: $(TARGET_CPP)
+	$(call execute, ./$(TARGET_CPP), , $(LOG_CPP))
+	$(call countcases, $(LOG_CPP))
+	grep invalid $(LOG_CPP) | wc | grep " 0 "
+ifeq ($(BUILD_ON_MINGW),)
+	test $(call countnoneline, $(LOG_CPP)) -eq $(NUMBER_OR_NONE_LINES)
+	test $(call getfilesize, $(LOG_CPP)) -eq $(SIZE_OF_LOG)
+endif
 
 # 数分かかる
 checklong: $(TARGET_HS_SLOW) $(TARGET_HS_SHORT) $(TARGET_HS_EX)
 	$(RUBY) $(HS_CHECK)
 
 $(TARGET_CPP): $(SOURCE_CPP)
-	$(CXX) $(CPPFLAGS) -o $@ $< $(LIBS) $(LDFLAGS)
+	$(CXX) $(CPPFLAGS) -o $(OBJ_CPP) -c $< $(LIBS) $(LDFLAGS)
+	$(LD) -o $@ $(OBJ_CPP) $(LIBS) $(LDFLAGS)
 
 $(TARGET_HS): $(SOURCE_HS)
-	$(HASKELL) $(HASKELLFLAGS) -o $@ $<
+	$(HASKELL) $(HASKELLFLAGS) -o $@ $< $(LDFLAGS)
 
 $(TARGET_HS_SLOW): $(SOURCE_HS_SLOW)
-	$(HASKELL) $(HASKELLFLAGS) -o $@ $<
+	$(HASKELL) $(HASKELLFLAGS) -o $@ $< $(LDFLAGS)
 
 $(TARGET_HS_SHORT): $(SOURCE_HS_SHORT)
-	$(HASKELL) $(HASKELLFLAGS) -o $@ $<
+	$(HASKELL) $(HASKELLFLAGS) -o $@ $< $(LDFLAGS)
 
 $(TARGET_HS_EX): $(SOURCE_HS_EX)
-	$(HASKELL) $(HASKELLFLAGS) -XBangPatterns -o $@ $<
+	$(HASKELL) $(HASKELLFLAGS) -XBangPatterns -o $@ $< $(LDFLAGS)
 
 clean:
 	$(RM) $(TARGETS) $(LOGS) ./*.o ./*.hi

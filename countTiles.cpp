@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -93,10 +94,12 @@ namespace CountTiles {
         return ((n >= 1) && (n <= 9)) ? static_cast<char>(n + '0') : '.';
     }
 
-    size_t GetArrayIndex(TileType n) {
-        // 1..9に対して0..8を返す
-        return (n - 1);
-    };
+    // インデックスが範囲内であることを確認して、配列要素への参照を返す
+    template <typename T, typename I>
+    decltype(auto) GetArrayElementRef(T& array, I index) {
+        assert(index < array.size());
+        return array[index];
+    }
 
     // 牌を各桁とみなしたときのkeyを返す
     TileSize GetKeyValue(TileType n) {
@@ -295,7 +298,8 @@ namespace CountTiles {
 
         // 未登録ならインスタンスを作る
         static ThreeTiles* GetInstance(const Data& tiles) {
-            const auto keyClosed = CalculateKey(false, tiles[0], tiles[1], tiles[2]);
+            const auto keyClosed = CalculateKey(false, GetArrayElementRef(tiles, 0),
+                                                GetArrayElementRef(tiles, 1), GetArrayElementRef(tiles, 2));
             if (instanceSet_.find(keyClosed) == instanceSet_.end()) {
                 instanceSet_[keyClosed] = std::unique_ptr<ThreeTiles>(new ThreeTiles(keyClosed, tiles));
             }
@@ -304,16 +308,16 @@ namespace CountTiles {
         }
 
         virtual TileSetKey GetKey(bool open, TileType extraTile) const override {
-            return (open) ? tileAttrSet_[GetArrayIndex(extraTile)].keyOpen_ : keyClosed_;
+            return (open) ? GetArrayElementRef(tileAttrSet_, extraTile).keyOpen_ : keyClosed_;
         }
 
         virtual bool HasTile(TileType tile) const override {
-            return (tileAttrSet_[tile].count_ != 0);
+            return (GetArrayElementRef(tileAttrSet_, tile).count_ != 0);
         }
 
         // 完成形または待ちを返す
         virtual const std::string& ToString(bool open, TileType extraTile) const override {
-            return (open) ? tileAttrSet_[GetArrayIndex(extraTile)].strOpen_ : strClosed_;
+            return (open) ? GetArrayElementRef(tileAttrSet_, extraTile).strOpen_ : strClosed_;
         };
 
         // 3つの牌を戻す
@@ -329,30 +333,30 @@ namespace CountTiles {
         ThreeTiles(TileSetKey keyClosed, const Data& tiles) :
             keyClosed_(keyClosed),
             tiles_(tiles),
-            strClosed_({LeftBracketClosed, ConvertToChar(tiles[0]), ConvertToChar(tiles[1]),
-                        ConvertToChar(tiles[2]), RightBracketClosed}) {
+            strClosed_({LeftBracketClosed, ConvertToChar(GetArrayElementRef(tiles, 0)),
+                        ConvertToChar(GetArrayElementRef(tiles, 1)),
+                        ConvertToChar(GetArrayElementRef(tiles, 2)), RightBracketClosed}) {
 
             // indexが待ち牌の場合の文字列を返す
-            registerThreeTiles(tiles[0], tiles[1], tiles[2]);
+            registerThreeTiles(GetArrayElementRef(tiles, 0), GetArrayElementRef(tiles, 1), GetArrayElementRef(tiles, 2));
 
             // 刻子に対しては上記と待ちが同じなので作らない
-            if (tiles[0] != tiles[1]) {
-                registerThreeTiles(tiles[1], tiles[0], tiles[2]);
-                registerThreeTiles(tiles[2], tiles[0], tiles[1]);
-                tileAttrSet_[tiles[0]].count_ += 1;
-                tileAttrSet_[tiles[1]].count_ += 1;
-                tileAttrSet_[tiles[2]].count_ += 1;
+            if (GetArrayElementRef(tiles, 0) != GetArrayElementRef(tiles, 1)) {
+                registerThreeTiles(GetArrayElementRef(tiles, 1), GetArrayElementRef(tiles, 0), GetArrayElementRef(tiles, 2));
+                registerThreeTiles(GetArrayElementRef(tiles, 2), GetArrayElementRef(tiles, 0), GetArrayElementRef(tiles, 1));
+                GetArrayElementRef(tileAttrSet_, GetArrayElementRef(tiles, 0)).count_ += 1;
+                GetArrayElementRef(tileAttrSet_, GetArrayElementRef(tiles, 1)).count_ += 1;
+                GetArrayElementRef(tileAttrSet_, GetArrayElementRef(tiles, 2)).count_ += 1;
             } else {
-                tileAttrSet_[tiles[0]].count_ += 3;
+                GetArrayElementRef(tileAttrSet_, GetArrayElementRef(tiles, 0)).count_ += 3;
             }
 
             return;
         }
 
         void registerThreeTiles(TileType tileExtra, TileType tile1, TileType tile2) {
-            const auto index = GetArrayIndex(tileExtra);
-            tileAttrSet_[index].keyOpen_ +=  CalculateKey(true, tile1, tile2);
-            tileAttrSet_[index].strOpen_ = std::string({LeftBracketOpen, ConvertToChar(tile1),
+            GetArrayElementRef(tileAttrSet_, tileExtra).keyOpen_ +=  CalculateKey(true, tile1, tile2);
+            GetArrayElementRef(tileAttrSet_, tileExtra).strOpen_ = std::string({LeftBracketOpen, ConvertToChar(tile1),
                         ConvertToChar(tile2), RightBracketOpen});
             return;
         }
@@ -367,7 +371,8 @@ namespace CountTiles {
         const TileSetKey  keyClosed_;  // 完成形のkey
         const Data        tiles_;      // 3つの牌
         const std::string strClosed_;  // 完成形の文字列
-        std::array<TileAttribute, KindOfTiles> tileAttrSet_;  // 各牌の持ち方
+        static constexpr size_t FirstTileIndex = 1;  // 牌"1"の配列中の番号
+        std::array<TileAttribute, KindOfTiles + FirstTileIndex> tileAttrSet_;  // 各牌の待ち方
         static Table instanceSet_;
     };
 
@@ -381,7 +386,7 @@ namespace CountTiles {
                       TileStrTable& localStrTable, TileStrTable& allStrTable) :
             extraTile_(extraTile), pPair_(TilePair::GetInstance(pair)), table_(table),
             localStrTable_(localStrTable), allStrTable_(allStrTable), numberOfThreeTiles_(0) {
-            tileSetArray_[0] = TileSetElement {pPair_, nullptr, Status::NOT_SEARCHED, table_.GetMinTile(TileMin)};
+            GetArrayElementRef(tileSetArray_, 0) = TileSetElement {pPair_, nullptr, Status::NOT_SEARCHED, table_.GetMinTile(TileMin)};
             table_.PopTiles(pair, 2);
         }
 
@@ -404,13 +409,13 @@ namespace CountTiles {
             const auto oldIndexThreeTiles = numberOfThreeTiles_;
             constexpr TileSize size = 3;
 
-            for(auto tile = tileSetArray_[numberOfThreeTiles_].minTile_; tile <= TileMax; ++tile) {
+            for(auto tile = GetArrayElementRef(tileSetArray_, numberOfThreeTiles_).minTile_; tile <= TileMax; ++tile) {
                 if (table_.GetRemainingSize(tile) >= size) {
                     auto pThreeTiles = ThreeTiles::GetInstance(ThreeTiles::Data {{tile, tile, tile}});
                     ++numberOfThreeTiles_;
 
                     // 先頭は対子
-                    tileSetArray_[numberOfThreeTiles_] = TileSetElement
+                    GetArrayElementRef(tileSetArray_, numberOfThreeTiles_) = TileSetElement
                         {pThreeTiles, pThreeTiles, Status::NOT_SEARCHED, table_.GetMinTile(tile)};
                     table_.PopTiles(tile, size);
                     break;
@@ -425,7 +430,7 @@ namespace CountTiles {
         VIRTUAL_FUNC bool SearchSequenceThree(void) {
             const auto oldIndexThreeTiles = numberOfThreeTiles_;
 
-            for(auto tile = tileSetArray_[numberOfThreeTiles_].minTile_; tile <= TileMax; ++tile) {
+            for(auto tile = GetArrayElementRef(tileSetArray_, numberOfThreeTiles_).minTile_; tile <= TileMax; ++tile) {
                 if ((tile <= TileMax - 2) && table_.GetRemainingSize(tile) &&
                     table_.GetRemainingSize(tile + 1) && table_.GetRemainingSize(tile + 2)) {
                     // 順子
@@ -433,7 +438,7 @@ namespace CountTiles {
                     ++numberOfThreeTiles_;
 
                     // 先頭は対子
-                    tileSetArray_[numberOfThreeTiles_] = TileSetElement
+                    GetArrayElementRef(tileSetArray_, numberOfThreeTiles_) = TileSetElement
                         {pThreeTiles, pThreeTiles, Status::NOT_SEARCHED, table_.GetMinTile(tile)};
 
                     table_.PopTiles(tile, 1);
@@ -455,7 +460,7 @@ namespace CountTiles {
             }
 
             auto found = false;
-            auto& status = tileSetArray_[numberOfThreeTiles_].status_;
+            auto& status = GetArrayElementRef(tileSetArray_, numberOfThreeTiles_).status_;
             if (status == Status::NOT_SEARCHED) {
                 found = SearchTriple();
                 status = Status::TRIPLE_SEARCHED;
@@ -474,7 +479,7 @@ namespace CountTiles {
             const auto oldIndexThreeTiles = numberOfThreeTiles_;
             --numberOfThreeTiles_;
             // 先頭は対子
-            tileSetArray_[oldIndexThreeTiles].pThreeTiles_->ReturnToTable(table_);
+            GetArrayElementRef(tileSetArray_, oldIndexThreeTiles).pThreeTiles_->ReturnToTable(table_);
         }
 
         // 結果を文字列として取得する
@@ -489,21 +494,22 @@ namespace CountTiles {
 
             for(decltype(numberOfThreeTiles_) i = 0; i <= numberOfThreeTiles_; ++i) {
                 // 同種の牌が複数あっても、i番目の対子,刻子,順子以外からは抜かない
-                if (!tileSetArray_[i].pTiles_->HasTile(extraTile_)) {
+                if (!GetArrayElementRef(tileSetArray_, i).pTiles_->HasTile(extraTile_)) {
                     continue;
                 }
 
                 std::array<KeyIndex, MaxNumberOfThreeTiles+1> keyIndexArray;
                 for(decltype(numberOfThreeTiles_) j = 0; j <= numberOfThreeTiles_; ++j) {
-                    keyIndexArray[j] = KeyIndex{j, tileSetArray_[j].pTiles_,
-                                                tileSetArray_[j].pTiles_->GetKey(i == j, extraTile_)};
+                    GetArrayElementRef(keyIndexArray, j) = KeyIndex{
+                        j, GetArrayElementRef(tileSetArray_, j).pTiles_,
+                        GetArrayElementRef(tileSetArray_, j).pTiles_->GetKey(i == j, extraTile_)};
                 }
 
                 std::sort(keyIndexArray.begin(), keyIndexArray.end(),
                           [&](const KeyIndex& l, const KeyIndex& r) { return (l.key > r.key); } );
                 TileSetKey key = 0;
                 for(decltype(numberOfThreeTiles_) j = 0; j <= numberOfThreeTiles_; ++j) {
-                    key = key * RadixOfThreeTiles + keyIndexArray[j].key;
+                    key = key * RadixOfThreeTiles + GetArrayElementRef(keyIndexArray, j).key;
                 }
 
                 if (localStrTable_.find(key) != localStrTable_.end()) {
@@ -514,7 +520,7 @@ namespace CountTiles {
                 auto strIndex = numberOfThreeTiles_ + 1;
                 while(strIndex > 0) {
                     --strIndex;
-                    auto& keyIndex = keyIndexArray[strIndex];
+                    auto& keyIndex = GetArrayElementRef(keyIndexArray, strIndex);
                     auto open = (i == keyIndex.index);
                     str += keyIndex.pTileSet->ToString(open, extraTile_);
                 }
