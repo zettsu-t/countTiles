@@ -101,7 +101,7 @@ checklong: $(TARGET_HS_SLOW) $(TARGET_HS_SHORT) $(TARGET_HS_EX)
 	$(RUBY) $(HS_CHECK)
 
 $(TARGET_CPP): $(SOURCE_CPP)
-	$(CXX) $(CPPFLAGS) -o $(OBJ_CPP) -c $< $(LIBS) $(LDFLAGS)
+	$(CXX) $(CPPFLAGS) -o $(OBJ_CPP) -c $<
 	$(LD) -o $@ $(OBJ_CPP) $(LIBS) $(LDFLAGS)
 
 $(TARGET_HS): $(SOURCE_HS)
@@ -117,6 +117,6 @@ $(TARGET_HS_EX): $(SOURCE_HS_EX)
 	$(HASKELL) $(HASKELLFLAGS) -XBangPatterns -o $@ $< $(LDFLAGS)
 
 clean:
-	$(RM) $(TARGETS) $(LOGS) ./*.o ./*.hi
+	$(RM) $(TARGETS) $(LOGS) $(OBJ_CPP) ./*.o ./*.hi
 
 rebuild: clean all
