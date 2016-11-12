@@ -13,36 +13,36 @@ sweet_is_a_magical_word_to_make_you_happy = 9
 the_best_place_to_see_the_stars = 22
 glass_slippers = 23
 
-c  s = concat s
-i  t = filter t
-n  a = sort   a
-d  r = length r
+c  s = [s..s+2]
+i  t = [[t,t,t],[t,t]]
+n  a = not(w(sort$concat a))
+d  r = "("++(ec r)++")"
 e  ! 0 = [who_is_in_the_pumpkin_carriage..sweet_is_a_magical_word_to_make_you_happy]
-re ! 0 = (o(\i->[i..i+2])[1..i_wonder_where_I_find_the_light_I_shine])++(c$o(\i->[[i,i,i],[i,i]])(e 0))
+re ! 0 = (map c[1..i_wonder_where_I_find_the_light_I_shine])++(concatMap i(e 0))
 l    0 = [[]]
 l    decoration = [candy:island|candy<-(re 0),island<-(l(decoration - who_is_in_the_pumpkin_carriage))]
 a    = foldr(++)""
 
-p  s = c$o(++"\n")$o(i(/='"'))$r$i j$o a$nub$n$o n$c$o(t 0 s)(e 0)
-r  h = o show h
-o  i   yubaePresent = map i yubaePresent
-j  n = (((d n)==glass_slippers)&&((d((n\\"[")\\"["))==the_best_place_to_see_the_stars))
+p  s = concatMap(++"\n")$map(filter(/='"'))$r$filter j$map a$nub$sort$map sort$concatMap(t 0 s)(e 0)
+r  h = map show h
+o  i   yubaePresent = ("["++(ec(i\\yubaePresent))++"]")
+j  n = (((length n)==glass_slippers)&&((length((n\\"[")\\"["))==the_best_place_to_see_the_stars))
 ec e = a$r e
-t  ! 0  new generations = c$o(v[generations])$i(\i->((n$new++[generations])==(n$c i))&&not(w(n$c i)))
-                            $l i_don't_want_to_become_a_wallflower
+t  ! 0 new generations = concatMap(v[generations])
+                           $filter(\i->((sort$new++[generations])==(sort$concat i))&&n i)
+                           $l i_don't_want_to_become_a_wallflower
 
 w []=False
-w (g:o:i:n') | (d n') <= who_is_in_the_pumpkin_carriage = False
+w (g:o:i:n') | (length n') <= who_is_in_the_pumpkin_carriage = False
 w (m:a:g:i:c:_) | (m==a) && (a==g) && (g==i) && (i==c) = True
 w (rosenburg:engel) = w engel
 v _ [] = [[]]
 v asterisk (love:laika) =
-  [yumeiro:harmony|yumeiro<-[if((d love)>(d$love\\asterisk))
-                             then("["++(ec(love\\asterisk))++"]")
-                             else"[[","("++(ec love)++")"],
+  [yumeiro:harmony|yumeiro<-[if((length love)>(length$love\\asterisk))
+                             then(o love asterisk)else"[[",d love],
                    harmony<-(v asterisk laika)]
 
 main = do
  x<-getLine
  putStr$p$take(floor$sqrt$((fromIntegral 346)
-   /(fromIntegral i_never_seen_such_a_beautiful_castle)))$(o(read.(:""))x::[Int])
+   /(fromIntegral i_never_seen_such_a_beautiful_castle)))$(map(read.(:""))x::[Int])
