@@ -33,3 +33,7 @@ make
 |countTilesCompareLog.rb|countTiles.* の実行結果を調べる|
 |countTilesCheckHs.rb|*.hsの実行結果を調べる|
 |Makefile|ビルドする|
+
+## ライセンス
+
+本ソフトウェアはMITライセンスのもとで配布しています。詳しくは[LICENSE.txt](LICENSE.txt)をご覧ください。
