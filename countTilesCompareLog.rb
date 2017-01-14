@@ -122,7 +122,7 @@ class LogFile
 end
 
 # ログファイル名一覧
-LOG_FILENAME_SET = ["logCpp.txt", "logRuby.txt", "logHs.txt"].map(&:freeze).freeze
+LOG_FILENAME_SET = ["logCpp.txt", "logBits.txt", "logRuby.txt", "logHs.txt"].map(&:freeze).freeze
 # 手牌の種類
 LOG_BLOCK_SIZE = 93600.freeze
 
