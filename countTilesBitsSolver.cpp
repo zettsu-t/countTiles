@@ -31,68 +31,82 @@ public:
     }
 
     inline void Print(std::string& str) {
-        const char left = (open_) ? '[' : '(';
-        const char right = (open_) ? ']' : ')';
-        str += left;
-
+        TileMap parentheses = (open_) ? (']' + '[' * 256) : (')' + '(' * 256);
         TileMap mask = 1;
         mask <<= SizeOfBitsPerTile;
 
         TileMap strAsTileMap[2] = {0, 0};
-        strAsTileMap[0] = tileMapToString(tileMap_);
+        strAsTileMap[0] = tileMapToString(tileMap_, parentheses);
         str += reinterpret_cast<char*>(&strAsTileMap);
-        str += right;
         return;
     }
 
-    // right + 0 で終端する
-    TileMap tileMapToString(TileMap tileMap) {
+    // 左括弧、文字列、右括弧、NUL終端をつけた文字列を整数として返す
+    TileMap tileMapToString(TileMap tileMap, TileMap parentheses) {
         TileMap strAsTileMap = 0;
-        static constexpr char baseTable[] = {'0', '0', '1', '2', '2', '3', '4', '5', '6', '7', '7', '8', 'a', 'a', 'a', 'a'};
+        static constexpr uint32_t baseTable[] = {'0', '0', '1', '2', '2', '3', '4', '5', '6',
+                                                 '7', '7', '8', 'a', 'a', 'a', 'a'};
         static constexpr uint8_t patternTable[] = {
-            0, 0, 0, 0,  0, 0, 0, 1,  0, 0, 0, 0,  0, 0, 1, 1,
-            0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 1, 1, 1,
-            0, 0, 0, 0,  0, 0, 2, 1,  0, 0, 0, 0,  0, 0, 0, 0,
+            0, 0, 0, 0,  1, 0, 0, 0,  0, 0, 0, 0,  1, 1, 0, 0,
+            0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  1, 1, 1, 0,
+            0, 0, 0, 0,  2, 1, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
             0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
-            0, 0, 0, 0,  0, 0, 3, 1,  0, 0, 0, 0,  0, 0, 0, 0,
+            0, 0, 0, 0,  3, 1, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
             0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
-            0, 0, 0, 0,  0, 3, 2, 1,  0, 0, 0, 0,  0, 0, 0, 0,
+            0, 0, 0, 0,  3, 2, 1, 0,  0, 0, 0, 0,  0, 0, 0, 0,
             0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0
         };
 
-        asm volatile (
-            "mov   r8, 0x427 \n\t"
-            "tzcnt r9, rbx  \n\t"
-            "jz    2f \n\t"
+        asm (
+            ".set  RegPattern,  r11 \n\t"
+            ".set  RegPatternD, r11d \n\t"
+            ".set  RegPatternB, r11b \n\t"
+            ".set  RegPos,      r12 \n\t"
+            ".set  RegMask,     r13 \n\t"
+            // ビットマスク 10000100111bで、順子と刻子を同時に取り出す
+            "mov   RegPattern, 0x427 \n\t"
+            "tzcnt RegPos, %1  \n\t"
+            // 全bitが0ということはない
 
-            "shlx  r10, r8, r9 \n\t"
-            "pext  r10, rbx, r10 \n\t"
-            "shr   r9, 2 \n\t"
-            "and   r9, 0xf \n\t"
-            "and   r10, 0x1f \n\t"
-            "xor   r8, r8 \n\t"
-            "mov   r8b, [rsi + r9] \n\t"
-            "mov   r9d, [rdi + r10 * 4] \n\t"
-            "mov   r15, r9 \n\t"
+            "shlx  RegMask, RegPattern, RegPos \n\t"
+            "pext  RegMask, %1, RegMask \n\t"
+            // 最右のbit位置を4で割る。1牌5ビットなので、表で調整する。
+            "shr   RegPos, 2 \n\t"
+            // メモリの範囲内に収める
+            "and   RegPos,  0xf \n\t"
+            "and   RegMask, 0x1f \n\t"
+            "mov   RegPatternD, [%3 + RegMask * 4] \n\t"
 
-            "xor   rax, rax \n\t"
-            "mov   rcx, 4 \n\t"
+            ".set  RegBaseChar,  r13 \n\t"
+            ".set  RegBaseCharD, r13d \n\t"
+            ".set  RegLeft,      r14  \n\t"
+            ".set  RegChar,      r15  \n\t"
+            ".set  RegCharD,     r15d \n\t"
+            "mov   RegBaseCharD, [%2 + RegPos * 4] \n\t"
+
+            "mov   %0, %4 \n\t"
+            "and   %0, 0xff \n\t"       // 左括弧
+            "mov   RegLeft, %4 \n\t"
+            "shr   RegLeft, 8 \n\t"
+            "and   RegLeft, 0xff \n\t"  // 右括弧
 
             "1: \n\t"
-            "mov   r10, r9 \n\t"
-            "and   r10, 0xff \n\t"
-            "mov   r11, r10 \n\t"
-            "add   r11, r8 \n\t"
-            "xor   r12, r12 \n\t"
-            "or    r10, r10 \n\t"
-            "cmovnz  r12, r11 \n\t"
-            "shl   rax, 8 \n\t"
-            "or    rax, r12 \n\t"
-            "shr   r9, 8 \n\t"
-            "loop  1b \n\t"
+            // '1'...'9' + patternTable[]
+            "mov   RegCharD, RegPatternD \n\t"
+            "and   RegCharD, 0xff \n\t"
+            "jz    2f \n\t"
+
+            "add   RegCharD, RegBaseCharD \n\t"
+            "shl   %0, 8 \n\t"
+            "or    %0, RegChar \n\t"
+            "shr   RegPatternD, 8 \n\t"
+            "jmp   1b \n\t"
 
             "2: \n\t"
-            :"=&a"(strAsTileMap):"b"(tileMap),"S"(baseTable),"D"(patternTable):"rcx","r8","r9","r10","r11","r12","r13","r14","r15","memory");
+            "shl   %0, 8 \n\t"
+            "or    %0, RegLeft \n\t"  // 右括弧
+
+            :"=&r"(strAsTileMap):"r"(tileMap),"r"(baseTable),"r"(patternTable),"r"(parentheses):"r11","r12","r13","r14","r15");
 
         return strAsTileMap;
     }

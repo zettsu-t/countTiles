@@ -72,6 +72,15 @@ LIBS_THREAD=-lboost_system -lboost_thread
 endif
 else
 # 追加のライブラリパスがあれば設定する
+# GCC 4.8 で std::thread を使う
+GCC_MAJOR_VERSION:=$(shell export LC_ALL=C ; gcc -v 2>&1 | tail -1 | cut -d " " -f 3 | cut -d "." -f1)
+ifeq ($(GCC_MAJOR_VERSION),4)
+LDFLAGS=-Wl,--no-as-needed
+LIBS_THREAD=-lpthread
+else
+LDFLAGS=
+LIBS_THREAD=
+endif
 EXTRA_LDFLAGS=
 endif
 
@@ -81,7 +90,7 @@ CPPFLAGS=-std=c++14 -Wall -O2 $(EXTRA_CPPFLAGS) $(MINGW_CPPFLAGS) $(MINGW_CLANG_
 CPPFLAGS_BITS_COMMON=-std=c++11 -Wall -O2 -mavx2 $(MINGW_CPPFLAGS)
 CPPFLAGS_BITS_ASM=$(CPPFLAGS_BITS_COMMON) -masm=intel
 LIBS=
-LDFLAGS=$(EXTRA_LDFLAGS)
+LDFLAGS+=$(EXTRA_LDFLAGS)
 HASKELLFLAGS=-O
 
 .PHONY: all check checkcpp checklong clean rebuild
@@ -128,18 +137,26 @@ endif
 	$(call measuretime, ./$(TARGET_BITS), , $(LOG_ANY))
 	$(call measuretime, ./$(TARGET_BITS),-N, $(LOG_ANY))
 
+# 最速版だけ実行する
+checkfastest: $(TARGET_BITS)
+	$(call measuretime, ./$(TARGET_BITS), , $(LOG_BITS))
+	$(call measuretime, ./$(TARGET_BITS),-N, $(LOG_BITS))
+ifeq ($(BUILD_ON_MINGW),)
+	test $(call getfilesize, $(LOG_BITS)) -eq $(SIZE_OF_LOG)
+endif
+
 # 数分かかる
 checklong: $(TARGET_HS_SLOW) $(TARGET_HS_SHORT) $(TARGET_HS_EX)
 	$(RUBY) $(HS_CHECK)
 
 $(TARGET_CPP): $(SOURCE_CPP)
 	$(CXX) $(CPPFLAGS) -o $(OBJ_CPP) -c $<
-	$(LD) -o $@ $(OBJ_CPP) $(LIBS) $(LDFLAGS)
+	$(LD) $(LDFLAGS) -o $@ $(OBJ_CPP) $(LIBS)
 
 $(TARGET_BITS): $(SOURCES_BITS)
 	$(GXX) $(CPPFLAGS_BITS_COMMON) -o $(OBJ_BITS_MAIN) -c $(SOURCE_BITS_MAIN)
 	$(GXX) $(CPPFLAGS_BITS_ASM) -o $(OBJ_BITS_SOLVER) -c $(SOURCE_BITS_SOLVER)
-	$(LD) -o $@ $(OBJS_BITS) $(LIBS_THREAD) $(LDFLAGS)
+	$(LD) $(LDFLAGS) -o $@ $(OBJS_BITS) $(LIBS_THREAD)
 
 $(TARGET_HS): $(SOURCE_HS)
 	$(HASKELL) $(HASKELLFLAGS) -o $@ $< $(LDFLAGS)

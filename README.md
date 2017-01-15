@@ -20,8 +20,6 @@ Cygwinターミナルから、makeを引数なしで実行すると、ビルド�
 make
 ```
 
-MinGWでビルドする場合は、Boost C++ Librariesが必要です。
-
 ## ファイル一覧
 
 |ファイル名|説明|
@@ -36,6 +34,8 @@ MinGWでビルドする場合は、Boost C++ Librariesが必要です。
 |countTilesCompareLog.rb|countTiles.* の実行結果を調べる|
 |countTilesCheckHs.rb|*.hsの実行結果を調べる|
 |Makefile|ビルドする|
+
+countTilesBitsをMinGW でビルドする場合は、Boost C++ Librariesが必要です。Distro 14.1でビルドできます。詳しくは[こちら](countTiles.md) をご参照ください。
 
 ## ライセンス
 
