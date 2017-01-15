@@ -33,6 +33,7 @@ SOURCE_HS_EX=countTilesEx.hs
 SOURCE_RUBY=countTiles.rb
 HS_CHECK=countTilesCheckHs.rb
 
+LOG_ANY=logAny.txt
 LOG_CPP=logCpp.txt
 LOG_BITS=logBits.txt
 LOG_HS=logHs.txt
@@ -40,7 +41,7 @@ LOG_RUBY=logRuby.txt
 LOG_HS_SLOW=logHsSlow.txt
 LOG_HS_SHORT=logHsShort.txt
 LOG_HS_EX=logHsEx.txt
-LOGS=$(LOG_CPP) $(LOG_BITS) $(LOG_HS) $(LOG_RUBY) $(LOG_HS_SLOW) $(LOG_HS_SHORT) $(LOG_HS_EX)
+LOGS=$(LOG_ANY) $(LOG_CPP) $(LOG_BITS) $(LOG_HS) $(LOG_RUBY) $(LOG_HS_SLOW) $(LOG_HS_SHORT) $(LOG_HS_EX)
 
 # 出力形式が変わったら変える
 NUMBER_OR_PATTERNS=93600
@@ -49,6 +50,7 @@ NUMBER_OR_NONE_LINES=53530
 SIZE_OF_LOG=4213870
 
 countcases=test -f $1 && grep : $1 | wc | grep " $(NUMBER_OR_PATTERNS) "
+measuretime=time $1 $2 > $3
 execute=time $1 $2 | grep -v pass | tr -d \\r > $3
 countnoneline=`test -f $1 && grep none $1 | wc -l`
 getfilesize=`test -f $1 && ls -nl $1 | cut --field=5 -d " "`
@@ -122,6 +124,9 @@ ifeq ($(BUILD_ON_MINGW),)
 	test $(call countnoneline, $(LOG_BITS)) -eq $(NUMBER_OR_NONE_LINES)
 	test $(call getfilesize, $(LOG_BITS)) -eq $(SIZE_OF_LOG)
 endif
+	$(call measuretime, ./$(TARGET_CPP), , $(LOG_ANY))
+	$(call measuretime, ./$(TARGET_BITS), , $(LOG_ANY))
+	$(call measuretime, ./$(TARGET_BITS),-N, $(LOG_ANY))
 
 # 数分かかる
 checklong: $(TARGET_HS_SLOW) $(TARGET_HS_SHORT) $(TARGET_HS_EX)

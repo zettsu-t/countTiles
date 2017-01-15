@@ -22,13 +22,12 @@ public:
         return;
     }
 
-    inline TileMap GetValue() const {
-        return tileMap_;
+    inline TileSet(TileMap tileMap, bool open) : tileMap_(tileMap), open_(open) {
+        return;
     }
 
-    inline void SetOpen(void) {
-        open_ = true;
-        return;
+    inline TileMap GetValue() const {
+        return tileMap_;
     }
 
     inline void Print(std::string& str) {
@@ -37,7 +36,7 @@ public:
         str += left;
 
         TileMap mask = 1;
-        mask <<= SizeOfTileSet;
+        mask <<= SizeOfBitsPerTile;
 
         TileMap strAsTileMap[2] = {0, 0};
         strAsTileMap[0] = tileMapToString(tileMap_);
@@ -49,8 +48,8 @@ public:
     // right + 0 で終端する
     TileMap tileMapToString(TileMap tileMap) {
         TileMap strAsTileMap = 0;
-        const char baseTable[] = {'0', '0', '1', '2', '2', '3', '4', '5', '6', '7', '7', '8', 'a', 'a', 'a', 'a'};
-        const uint8_t patternTable[] = {
+        static constexpr char baseTable[] = {'0', '0', '1', '2', '2', '3', '4', '5', '6', '7', '7', '8', 'a', 'a', 'a', 'a'};
+        static constexpr uint8_t patternTable[] = {
             0, 0, 0, 0,  0, 0, 0, 1,  0, 0, 0, 0,  0, 0, 1, 1,
             0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 1, 1, 1,
             0, 0, 0, 0,  0, 0, 2, 1,  0, 0, 0, 0,  0, 0, 0, 0,
@@ -108,30 +107,41 @@ class TileFullSet {
 public:
     using SetArray = std::vector<TileFullSet>;  // 13牌の集合
 
-    inline void Set(const TileSet& tileSet, SizeType index) {
-        tileSetArray_.at(index) = tileSet;
+    inline void Set(TileMap tileMap, SizeType index) {
+        TileSet tileSet(tileMap);
+        tileSetArray_.at(index) = std::move(tileSet);
         return;
     }
 
-    inline void Filter(TileMap mask, SetArray& newFullSetArray) {
+    // tileSetを追加する。元のtileSetは以後使えない。
+    inline void Set(TileSet& tileSet, SizeType index) {
+        tileSetArray_.at(index) = std::move(tileSet);
+        return;
+    }
+
+    inline void Filter(TileIndex extra, SetArray& newFullSetArray) {
+        TileMap mask = 0xf;
+        mask <<= (extra * SizeOfBitsPerTile);
+
         SizeType i = 0;
         for(auto& tileSet : tileSetArray_) {
             TileMap newTileMap;
-            asm volatile (
+            const auto oldTileSet = tileSet.GetValue();
+
+            // oldTileSetにextraがあれば取り除いてnewTileMapに入れる
+            asm (
                 "mov  r15, %1 \n\t"
                 "shr  r15, 1  \n\t"
                 "and  r15, %2 \n\t"
-                "andn rax, %2, %1 \n\t"
-                "or   rax, r15 \n\t"
-                :"=&a"(newTileMap):"r"(tileSet.GetValue()),"r"(mask):"r15","memory");
+                "andn %0,  %2, %1 \n\t"
+                "or   %0,  r15 \n\t"
+                :"=&r"(newTileMap):"r"(oldTileSet),"r"(mask):"r15");
 
-            TileSet newSet {newTileMap};
-
-            if (newSet.GetValue() != tileSet.GetValue()) {
+            if (newTileMap != oldTileSet) {
+                TileSet newSet(newTileMap, true);
                 auto newFullSet = *this;
-                newSet.SetOpen();
                 newFullSet.Set(newSet, i);
-                newFullSetArray.push_back(newFullSet);
+                newFullSetArray.push_back(std::move(newFullSet));
             }
             ++i;
         }
@@ -149,7 +159,7 @@ public:
             tileSet.Print(str);
         }
         str += "\n";
-        strArray.push_back(str);
+        strArray.push_back(std::move(str));
     }
 
 private:
@@ -159,21 +169,18 @@ private:
 // 対子 + 刻子または順子 * 4 の組
 class Solution {
 public:
-    inline void Add(const TileFullSet& arg) {
-        fullSetArray_.push_back(arg);
+    // fullSetを追加する。元のfullSetは以後使えない。
+    inline void Add(TileFullSet& fullSet) {
+        fullSetArray_.push_back(std::move(fullSet));
     }
 
     // 決め打ちした牌を除いて解を作る
     inline void Filter(TileIndex extra) {
         decltype(fullSetArray_) newFullSetArray;
-        TileMap mask = 0xf;
-        mask <<= (extra * SizeOfTileSet);
-
         for(auto& fullSet : fullSetArray_) {
-            fullSet.Filter(mask, newFullSetArray);
+            fullSet.Filter(extra, newFullSetArray);
         }
 
-        fullSetArray_.clear();
         fullSetArray_.swap(newFullSetArray);
     }
 
@@ -195,6 +202,7 @@ public:
         StrArray strArray;
         findAll(src_, strArray);
 
+        // テスト用に「待ち無し」を返す
         if (strArray.empty()) {
             std::string noneResult {"(none)\n"};
             return noneResult;
@@ -208,272 +216,343 @@ public:
     }
 
 private:
-    inline void findAll(TileMap src, StrArray& strArray) {
+    // tileMapの待ちを調べる
+    inline void findAll(TileMap tileMap, StrArray& strArray) {
+        constexpr TileMap mask5th = 0x2108421084200ull;  // 1..9のいずれかに5牌目がある
         TileMap lowerMask = 1;
         TileMap fullMask = 0x1f;
-        TileMap allMask = 0x2108421084200ull;
 
+        // extraを待ちと決め打ちして調べる
         for(TileIndex extra=1; extra<=TileMax; ++extra) {
-            lowerMask <<= SizeOfTileSet;
-            fullMask <<= SizeOfTileSet;
-            TileMap newSrc = 0;
+            lowerMask <<= SizeOfBitsPerTile;
+            fullMask <<= SizeOfBitsPerTile;
+            TileMap newTileMap = 0;
 
-            asm volatile (
+            asm (
+                // 1牌増やす
                 "mov   r14, %1  \n\t"
                 "and   r14, %3  \n\t"
                 "andn  r15, %3, %1 \n\t"
                 "shl   r14, 1   \n\t"
                 "or    r14, %2  \n\t"
                 "or    r15, r14 \n\t"
-                "xor   rax, rax \n\t"
-                "mov   r14, %4  \n\t"
-                "and   r14, r15 \n\t"
-                "cmovz rax, r15 \n\t"
-                :"=&a"(newSrc):"r"(src),"r"(lowerMask),"r"(fullMask),"r"(allMask):"r14","r15","memory");
 
-            if (newSrc != 0) {
-                findWithExtra(newSrc, extra, strArray);
+                // 5牌目があったら0を返す
+                "xor   %0, %0 \n\t"
+                "test  %4, r15 \n\t"
+                "cmovz %0, r15 \n\t"
+                :"=&r"(newTileMap):"r"(tileMap),"r"(lowerMask),"r"(fullMask),"r"(mask5th):"r14","r15");
+
+            if (newTileMap != 0) {
+                findWithExtra(newTileMap, extra, strArray);
             }
         }
 
+        // 重複を除く(要高速化)
         std::sort(strArray.begin(), strArray.end());
         strArray.erase(std::unique(strArray.begin(), strArray.end()), strArray.end());
         return;
     }
 
-    inline void findWithExtra(TileMap src, TileMap extra, StrArray& strArray) {
+    // tileMapに待ちextraを決め打ちして待ちを調べる
+    inline void findWithExtra(TileMap tileMap, TileMap extra, StrArray& strArray) {
         TileMap lowerMask = 3;
         TileMap fullMask = 0x1f;
-        for(TileIndex i=1; i<=TileMax; ++i) {
-            lowerMask <<= SizeOfTileSet;
-            fullMask <<= SizeOfTileSet;
+
+        // 1..9 の対子について調べる
+        for(TileIndex i=TileMin; i<=TileMax; ++i) {
+            lowerMask <<= SizeOfBitsPerTile;
+            fullMask <<= SizeOfBitsPerTile;
             TileMap tilePair = 0;
             TileMap rest = 0;
 
-            asm volatile (
-                "andn  rbx, %4, %2 \n\t"
-                "mov   r14, %2  \n\t"
-                "and   r14, %4  \n\t"
-                "shr   r14, 2   \n\t"
-                "and   r14, %4  \n\t"
-                "or    rbx, r14 \n\t"
-                "mov   r15, %2  \n\t"
-                "and   r15, %3  \n\t"
-                "xor   rax, rax \n\t"
-                "cmp   r15, %3  \n\t"
-                "cmovz rax, %3  \n\t"
-                :"=&a"(tilePair),"=&b"(rest):"r"(src),"r"(lowerMask),"r"(fullMask):"r14","r15","memory");
+            asm (
+                // 対子を取り除いた残り
+                "andn   %1, %4, %2  \n\t"
+                "mov    r15, %2  \n\t"
+                "and    r15, %4  \n\t"
+                "shr    r15, 2   \n\t"
+                "and    r15, %4  \n\t"
+                "or     %1, r15  \n\t"
 
-            if (tilePair) {
-                TileFullSet fullSet;
-                Solution solution;
-                TileSet tileSet(tilePair);
-                fullSet.Set(tileSet, 0);
-                splitTileMap(rest, fullSet, solution, 1, false);
-                solution.Filter(extra);
-                solution.Print(strArray);
+                // 対子
+                "mov    r15, %2  \n\t"
+                "and    r15, %3  \n\t"
+
+                // 対子があれば返す
+                "xor    %0, %0   \n\t"
+                "cmp    r15, %3  \n\t"
+                "cmovz  %0, %3   \n\t"
+                :"=&r"(tilePair),"=&r"(rest):"r"(tileMap),"r"(lowerMask),"r"(fullMask):"r15");
+
+            if (!tilePair) {
+                continue;
             }
+
+            TileFullSet fullSet;
+            Solution solution;
+            TileSet tileSet(tilePair);
+            fullSet.Set(tileSet, 0);
+            splitTileMap(rest, fullSet, 1, false, solution);
+            solution.Filter(extra);
+            solution.Print(strArray);
         }
     }
 
-    void splitTileMap(TileMap& src, TileFullSet& fullSet, Solution& solution, SizeType depth, bool noTriple) {
+    void splitTileMap(TileMap tileMap, TileFullSet fullSet, SizeType depth, bool noTriple, Solution& solution) {
+        constexpr TileMap tripleLowerMask = 7;   //  111b を
+        constexpr TileMap tripleFullMask  = 15;  // 1111b から取り出して
+        constexpr TileMap tripleUpperMask = 8;   // 1000b を残す
+        constexpr TileMap sequenceLowerMask =  0x421;  //     10000100001b を
+        constexpr TileMap sequenceFullMask  = 0x3def;  // 011110111101111b から取り出して
+        constexpr TileMap sequenceUpperMask = 0x7bde;  // 111101111011110b を残す
+        constexpr auto finalSizeOfTileSet = SizeOfTileSet - 1;
+        const auto newDepath = depth + 1;
+
         TileMap triple = 0;
         TileMap tripleRest = 0;
-        TileMap tripleLowerMask = 7;
-        TileMap tripleFullMask = 0xf;
-        TileMap tripleUpperMask = 8;
-        auto foundTriple = splitWithMask(triple, tripleRest, src,
-                                         tripleLowerMask, tripleFullMask, tripleUpperMask);
+        if (!noTriple) {
+            splitWithMask(tileMap, tripleLowerMask, tripleFullMask, tripleUpperMask, triple, tripleRest);
+        }
 
         TileMap sequence = 0;
         TileMap sequenceRest = 0;
-        TileMap sequenceLowerMask = 0x421;
-        TileMap sequenceFullMask = 0x3def;
-        TileMap sequenceUpperMask = 0x7bde;
-        auto foundSequence = splitWithMask(sequence, sequenceRest, src,
-                                           sequenceLowerMask, sequenceFullMask, sequenceUpperMask);
+        splitWithMask(tileMap, sequenceLowerMask, sequenceFullMask, sequenceUpperMask, sequence, sequenceRest);
 
-        noTriple |= !foundTriple;
-        if (depth == (SizeOfTileSet - 1)) {
-            if (foundTriple) {
+        noTriple |= (triple == 0);
+        if (depth == finalSizeOfTileSet) {
+            if (triple) {
                 auto newFullSet = fullSet;
                 TileMap tileMap(triple);
                 newFullSet.Set(tileMap, depth);
                 solution.Add(newFullSet);
             }
 
-            if (foundSequence) {
+            if (sequence) {
                 auto newFullSet = fullSet;
                 TileMap tileMap(sequence);
                 newFullSet.Set(tileMap, depth);
                 solution.Add(newFullSet);
             }
         } else {
-            if (!noTriple && foundTriple) {
+            if (triple) {
                 auto newFullSet = fullSet;
                 TileMap tileMap(triple);
                 newFullSet.Set(tileMap, depth);
-                splitTileMap(tripleRest, newFullSet, solution, depth + 1, noTriple);
+                splitTileMap(tripleRest, newFullSet, newDepath, noTriple, solution);
             }
 
-            if (foundSequence) {
+            if (sequence) {
                 auto newFullSet = fullSet;
                 TileMap tileMap(sequence);
                 newFullSet.Set(tileMap, depth);
-                splitTileMap(sequenceRest, newFullSet, solution, depth + 1, noTriple);
+                splitTileMap(sequenceRest, newFullSet, newDepath, noTriple, solution);
             }
         }
 
         return;
     }
 
-    inline bool splitWithMask(TileMap& tileMap, TileMap& rest, TileMap& src,
-                              TileMap& lowerMask, TileMap& fullMask, TileMap& upperMask) {
-        asm volatile (
-            "mov  r8,  rcx \n\t"
-            "mov  ecx, 10  \n\t"
-            "mov  rbx, rdx \n\t"
-            "1: \n\t"
-            "shl  rsi, 5   \n\t"
-            "shl  rdi, 5   \n\t"
-            "shl  r8,  5   \n\t"
-            "mov  r9,  rdx \n\t"
-            "and  r9,  rsi \n\t"
-            "cmp  r9,  rsi \n\t"
-            "loopne 1b \n\t"
+    // tileMapからlowerMaskを取り出して、取り出せたらextractedに、残りをrestに入れる
+    // lowerMask : 各桁から取り出すbitの集合
+    // fullMask  : 各桁の全5bitsの集合
+    // upperMask : 各桁から取り出した後の残りbitの集合
+    inline void splitWithMask(TileMap tileMap, TileMap lowerMask, TileMap fullMask, TileMap upperMask,
+                              TileMap& extracted, TileMap& rest) {
+        asm (
+            "mov  %1, %2  \n\t"
+            "mov  ecx, 10 \n\t"
 
+            "1: \n\t"
+            // 次の牌の組を調べる
+            "shl  %3, 5  \n\t"
+            "shl  %4, 5  \n\t"
+            "shl  %5, 5  \n\t"
+            "mov  r15, %2  \n\t"
+            "and  r15, %3  \n\t"
+            "cmp  r15, %3  \n\t"
+            "loopne 1b \n\t"
             "jnz    2f \n\t"
-            "pext  r9, rdx, r8 \n\t"
-            "pdep  r9, r9, rdi \n\t"
-            "andn  rbx, rdi, rbx \n\t"
-            "or    rbx, r9 \n\t"
+
+            // ビットパターンが見つかったので取り出す
+            "pext  r15, %2,  %5  \n\t"
+            "pdep  r15, r15, %4  \n\t"
+            "andn  %1, %4, %1 \n\t"
+            "or    %1, r15    \n\t"
+
+            // ビットパターンが見つかったらその値、見つからなければ0を返す
             "2: \n\t"
-            "xor  rax, rax \n\t"
-            "cmp  rbx, rdx \n\t"
-            "cmovnz  rax, rsi \n\t"
-            :"=&a"(tileMap),"=&b"(rest):"d"(src),"S"(lowerMask),"D"(fullMask),"c"(upperMask):"r8", "r9","memory");
-        return (tileMap != 0);
+            "xor  %0, %0  \n\t"
+            "cmp  %1, %2  \n\t"
+            "cmovnz  %0, %3  \n\t"
+            :"=&r"(extracted),"=&r"(rest),"+r"(tileMap),"+r"(lowerMask),"+r"(fullMask),"+r"(upperMask)::"rcx","r15");
+
+        return;
     }
 
     TileMap src_;
 };
 
 namespace {
-    // ある牌の組み合わせについてを待ちを取得する
-    inline std::string solvePattern(const std::string& patternStr, TileMap patternTileMap) {
-        std::string resultStr = patternStr;
-        resultStr += ":\n";
-
-        Puzzle puzzle(patternTileMap);
-        resultStr += puzzle.Find();
-        return resultStr;
-    }
-
-    // patternStrを設定する場合は、patternStr[0]が非0
-    TileMap enumerateOne(TileMap& tileMap, TileMap& nextNumber, TileMap& number,
-                         bool enablePattern, std::string& patternStr) {
+    // 待ち形の順列で、numberの次を見つけて、nextNumberに設定する
+    // これ以上待ち形がないときは非0を、あれば0返す
+    // numberの待ち形をtileMapに設定する
+    // numberの待ち形をpatternStrを設定する場合は、enablePatternにfalseを、設定しないときはfalseを設定する
+    inline TileMap enumerateOne(bool enablePattern, TileMap number,
+                                TileMap& tileMap, TileMap& nextNumber, std::string& patternStr) {
         TileMap invalid = 0;
-        char patternCharSet[SizeOfCompleteTiles + 2] = {enablePattern, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0};
+        TileMap enablePatternQ = enablePattern;
 
-        asm volatile (
-            "xor  rdi, rdi \n\t"
-            "mov  rbx, rdx \n\t"
-            "mov  rcx, 13 \n\t"
-            "mov  r8, 9 \n\t"
-            "mov  r9, 4 \n\t"
-            "mov  r10, (15 << 4) \n\t"
-            "mov  r11, 9 \n\t"
-            "mov  r15, 1 \n\t"
+        // enablePattern をメモリ渡しする
+        char patternCharSet[SizeOfCompleteTiles + 2] = {
+            0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, ':', '\n', 0};
 
-            "1: \n\t"
-            "shlx  r11, r8, r9 \n\t"
-            "mov   r12, rdx \n\t"
-            "and   r12, r10 \n\t"
-            "cmp   r12, r11 \n\t"
-            "jnz   2f \n\t"
+        asm (
+            ".set  RegTileMap,    rax \n\t"
+            ".set  RegNextNumber, rbx \n\t"
+            ".set  RegInvalid,    rdi \n\t"
+            ".set  RegInvalidD,   edi \n\t"
+            ".set  RegNumber,     rdx \n\t"
+            ".set  RegPatternCharSet, rsi \n\t"
+            ".set  RegFour, r14 \n\t"
+            ".set  RegOne,  r15 \n\t"
 
-            "xor   r14, r14 \n\t"
-            "add   r9, 4 \n\t"
-            "mov   r13, rcx \n\t"
-            "and   r13, 3 \n\t"
-            "cmp   r13, 2 \n\t"
-            "cmovz r14, r15 \n\t"
-            "sub   r8, r14 \n\t"
-            "shl   r10, 4 \n\t"
-            "loop  1b \n\t"
-            "mov   rdi, 1 \n\t"
+            "xor   RegInvalidD, RegInvalidD \n\t"  // falseにする
+            "mov   RegFour, 4 \n\t"  // 定数4
+            "mov   RegOne,  1 \n\t"  // 定数1
 
-            "2: \n\t"
-            "mov   r8, rcx \n\t"
-            "mov   rcx, 14 \n\t"
-            "sub   rcx, r8 \n\t"
-            "xor   r13, r13 \n\t"
-            "mov   r12, rdx \n\t"
-            "shrx  r8, r12, r9 \n\t"
-            "and   r8, 15 \n\t"
-            "add   r8, 1 \n\t"
+            "or    ecx, ecx \n\t"
+            "jz    21f \n\t"
 
-            "3: \n\t"
-            "shlx  r11, r8, r9 \n\t"
-            "andn  rbx, r10, rbx \n\t"
-            "or    rbx, r11 \n\t"
+            // numberを文字列にする
+            ".set  RegStrPtr, r8 \n\t"
+            ".set  RegRest,   r9 \n\t"
+            ".set  RegWork11, r10 \n\t"
 
-            "xor   r14, r14 \n\t"
-            "add   r13, 1 \n\t"
-            "test  r13, 3 \n\t"
-            "cmovz r14, r15 \n\t"
-            "add   r8, r14 \n\t"
-            "sub   r9, 4 \n\t"
-            "shr   r10, 4 \n\t"
-            "loop  3b \n\t"
+            "mov   RegStrPtr, RegPatternCharSet \n\t"
+            "sub   RegStrPtr, RegOne \n\t"
+            "mov   RegRest,   RegNumber \n\t"
+            "mov   ecx, 13 \n\t"
 
-            "xor   rax, rax \n\t"
-            "mov   r8, rdx \n\t"
-            "mov   r9, 15 \n\t"
-            "mov   r10, 31 \n\t"
-            "mov   rcx, 13 \n\t"
+            "11: \n\t"
+            "shr   RegRest, 4   \n\t"
+            "mov   RegWork11, RegRest \n\t"
+            "and   RegWork11, 0xf  \n\t"
+            "add   RegWork11, 0x30 \n\t"  // '0'
+            "mov   [RegStrPtr + rcx], r10b \n\t"
+            "loop  11b\n\t"
 
-            "4: \n\t"
-            "shr   r8, 4 \n\t"
-            "mov   r11, r8 \n\t"
-            "and   r11, r9 \n\t"
-            "mov   r12, r11 \n\t"
-            "shl   r11, 2 \n\t"
-            "add   r11, r12 \n\t"
+            // numberをビットマップにする
+            "21: \n\t"
+            ".set  RegTilePos,    r8 \n\t"
+            ".set  RegBitMask,    r9 \n\t"
+            ".set  RegRest,       r10 \n\t"
+            ".set  RegOutBitMask, r11 \n\t"
+            ".set  RegWork21,     r12 \n\t"
 
-            "shlx  r12, r10, r11 \n\t"
-            "pext  r13, rax, r12 \n\t"
-            "shl   r13, 1 \n\t"
-            "or    r13, 1 \n\t"
-            "pdep  r13, r13, r12 \n\t"
-            "or    rax, r13 \n\t"
-            "loop  4b\n\t"
+            "mov   RegTilePos, RegFour \n\t"  // 同じ牌が4つある
+            "mov   RegBitMask, 0xf \n\t"      // ビットマスク
+            "mov   RegRest, RegNumber \n\t"
+            "mov   RegOutBitMask, 0x1f \n\t"  // 11111b
+            "xor   eax, eax \n\t"
+            "mov   ecx, 13 \n\t"  // 牌の数
+
+            "22: \n\t"
+            "shr   RegRest, 4 \n\t"
+
+            // 桁の数字を取り出して5倍にする
+            "mov   RegTilePos, RegRest \n\t"
+            "and   RegTilePos, RegBitMask \n\t"
+            "mov   RegWork21,  RegTilePos \n\t"
+            "shl   RegWork21,  2 \n\t"
+            "add   RegTilePos, RegWork21 \n\t"
+
+            "shlx  RegTilePos, RegOutBitMask, RegTilePos \n\t"
+            "pext  RegWork21, rax, RegTilePos \n\t"
+            // 111b -> 1111bに増やす
+            "shl   RegWork21, 1 \n\t"
+            "or    RegWork21, RegOne \n\t"
+            "pdep  RegWork21, RegWork21, RegTilePos \n\t"
+            "or    rax, RegWork21 \n\t"
+            "loop  22b\n\t"
+
+            // 次の候補を探す
+            "31: \n\t"
+            ".set RegDigit,        r10 \n\t"
+            ".set RegPattern,      r11 \n\t"
+            ".set RegCheckedDigit, r12 \n\t"
+            ".set RegCountLow,     r13 \n\t"
+
+            "mov  RegTilePos,  RegFour \n\t" // 同じ牌が4つある
+            "mov  RegBitMask,  0xf0 \n\t"    // ビットマスク
+            "mov  RegDigit,    9 \n\t"       // 下一桁を9から順に減らしていく
+            "mov  ecx, 13 \n\t"  // ループ回数
+
+            "32: \n\t"
+            // 下の桁から上の桁に向かってRegDigitを探す
+            "shlx  RegPattern, RegDigit, RegTilePos \n\t"
+            "mov   RegCheckedDigit, RegNumber  \n\t"
+            "and   RegCheckedDigit, RegBitMask \n\t"
+            "cmp   RegCheckedDigit, RegPattern \n\t"
+            "jnz   33f \n\t"
+
+            // 桁が見つかった
+            "xor   RegCheckedDigit, RegCheckedDigit \n\t"  // 見つける数字を減らすときは1, 減らさないときは0
+            "mov   RegCountLow, rcx \n\t"  // 残り10, 6, 2桁になったら、見つける数字を減らす
+            "and   RegCountLow, 3 \n\t"
+            "cmp   RegCountLow, 2 \n\t"
+            "cmovz RegCheckedDigit, RegOne \n\t"
+
+            "sub   RegDigit, RegCheckedDigit \n\t"
+            "shl   RegBitMask, 4 \n\t"
+            "add   RegTilePos, RegFour \n\t"   // 一つ上の桁をみる
+            "loop  32b \n\t"
+
+            // すべての桁を探したが、繰り上げられる桁が見つからなかった
+            "mov   RegInvalid, RegOne \n\t"
+            "jmp   41f \n\t"
+
+            "33: \n\t"
+            "mov   RegDigit, rcx \n\t"  // 何桁目から下を繰り上げるか
+            "mov   ecx, 14 \n\t"
+            "sub   rcx, RegDigit \n\t"  // 何桁繰り上げるか
+            "mov   RegCheckedDigit, RegNumber \n\t"
+            "shrx  RegDigit, RegCheckedDigit, RegTilePos \n\t"  // 繰り上げた後の値
+            "and   RegDigit, 0xf \n\t"
+            "add   RegDigit, RegOne \n\t"
+
+            ".set  RegCount,     r12 \n\t"
+            ".set  RegDigitDiff, r13 \n\t"
+            "xor   RegCount, RegCount \n\t"  // 何桁目で繰り上げる数字を1増やすか
+            "mov   RegNextNumber, RegNumber \n\t"
+
+            // 桁を繰り上げる
+            "34: \n\t"
+            "shlx  RegPattern, RegDigit, RegTilePos \n\t"
+            "andn  RegNextNumber, RegBitMask, RegNextNumber \n\t"
+            "or    RegNextNumber, RegPattern \n\t"
+
+            // 同じ牌が続いたら、牌の番号を1増やす
+            "xor   RegDigitDiff, RegDigitDiff \n\t"
+            "add   RegCount, 1 \n\t"
+            "test  RegCount, 3 \n\t"
+            "cmovz r13, RegOne \n\t"
+            "add   RegDigit, RegDigitDiff \n\t"
+            // 一つ下の桁をみる
+            "sub   RegTilePos, RegFour \n\t"
+            "shr   RegBitMask, 4 \n\t"
+            "loop  34b \n\t"
 
             "41: \n\t"
-            "or    byte ptr [rsi], 0 \n\t"
-            "jz    6f \n\t"
-            "mov   rcx, 13 \n\t"
-            "mov   r8,  rsi \n\t"
-            "sub   r8,  1   \n\t"
-            "mov   r9,  rdx \n\t"
+            :"=&a"(tileMap),"=&b"(nextNumber),"+c"(enablePatternQ),"=&D"(invalid):"d"(number),"S"(patternCharSet):"r8","r9","r10","r11","r12","r13","r14","r15","memory");
 
-            "5: \n\t"
-            "shr   r9, 4   \n\t"
-            "mov   r10, r9 \n\t"
-            "and   r10, 15 \n\t"
-            "add   r10, 0x30 \n\t"
-            "mov   [r8 + rcx], r10b \n\t"
-            "loop  5b\n\t"
-
-            "6: \n\t"
-            :"=&a"(tileMap),"=&b"(nextNumber),"=&D"(invalid):"d"(number),"S"(patternCharSet):"rcx","r8","r9","r10","r11","r12","r13","r14","r15","memory");
-
-        patternStr = const_cast<char*>(patternCharSet);
+        patternStr = patternCharSet;
         return invalid;
     }
 }
 
 namespace TileSetSolver {
+    // 各スレッドは、indexOffset番目(先頭は0)から、stepSize個間隔で、待ち形を求める
     void EnumerateAll(SizeType indexOffset, SizeType stepSize, StrArray& result) {
         decltype(indexOffset) patternIndex = 0;
         TileMap number = 0x11112222333340;  // 辞書順で一番小さいパターン
@@ -483,11 +562,16 @@ namespace TileSetSolver {
 
         do {
             bool enablePattern = (patternIndex == indexOffset);
-            std::string patternStr;
-            invalid = enumerateOne(tileMap, nextNumber, number, enablePattern, patternStr);
+            {
+                std::string patternStr;
+                invalid = enumerateOne(enablePattern, number, tileMap, nextNumber, patternStr);
 
-            if (enablePattern) {
-                result.push_back(solvePattern(patternStr, tileMap));
+                if (enablePattern) {
+                    // ある牌の組み合わせについてを待ちを取得する
+                    Puzzle puzzle(tileMap);
+                    patternStr += puzzle.Find();
+                    result.push_back(std::move(patternStr));
+                }
             }
 
             ++patternIndex;

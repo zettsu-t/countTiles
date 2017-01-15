@@ -23,7 +23,6 @@
 #define THREAD_HARDWARE_CONCURRENCY  boost::thread::hardware_concurrency
 #else
 #include <future>
-// Cygwinでマルチスレッド実行すると却って遅くなる
 #define THREAD_FUTURE std::future
 #define THREAD_ASYNC  std::async
 #define THREAD_LAUNCH_ASYNC std::launch::async
@@ -33,47 +32,54 @@
 using namespace TileSetSolver;
 
 namespace {
-    void SolveAll(SizeType sizeOfThreads) {
-        std::string totalStr;
+    void solveAllInSingleThread(std::ostream& os) {
+        StrArray result;
+        EnumerateAll(0, 1, result);
+        for(auto str : result) {
+            os << str;
+        }
+        return;
+    }
 
-        if (sizeOfThreads <= 1) {
-            StrArray result;
-            EnumerateAll(0, 1, result);
-            for(auto str : result) {
-                totalStr += str;
-            }
-        } else {
-            std::vector<StrArray> resultSet;
-            resultSet.resize(sizeOfThreads);
+    void solveAllWithThreads(SizeType sizeOfThreads, std::ostream& os) {
+        std::vector<StrArray> resultSet;
+        resultSet.resize(sizeOfThreads);
 
-            // 並行して評価する関数群を準備する
-            std::vector<THREAD_FUTURE<void>> futureSet;
-            for(decltype(sizeOfThreads) index = 0; index < sizeOfThreads; ++index) {
-                futureSet.push_back(
-                    THREAD_ASYNC(THREAD_LAUNCH_ASYNC,
-                                 [&resultSet, index, sizeOfThreads](void) -> void
-                                 { EnumerateAll(index, sizeOfThreads, resultSet.at(index)); }));
-            }
+        // 並行して評価する関数群を準備する
+        std::vector<THREAD_FUTURE<void>> futureSet;
+        for(decltype(sizeOfThreads) index = 0; index < sizeOfThreads; ++index) {
+            futureSet.push_back(
+                THREAD_ASYNC(THREAD_LAUNCH_ASYNC,
+                             [&resultSet, index, sizeOfThreads](void) -> void
+                             { EnumerateAll(index, sizeOfThreads, resultSet.at(index)); }));
+        }
 
-            // 並行して評価して、結果がそろうのを待つ
-            for(auto& f : futureSet) {
-                f.get();
-            }
+        // 並行して評価して、結果がそろうのを待つ
+        for(auto& f : futureSet) {
+            f.get();
+        }
 
-            // 並行実行結果から、順番に結果を取得する
-            bool cont = true;
-            for(decltype(resultSet)::value_type::size_type i = 0; cont; ++i) {
-                for(auto& result : resultSet) {
-                    if (result.size() <= i) {
-                        cont = false;
-                        break;
-                    }
-                    totalStr += result.at(i);
+        // 並行実行結果から、順番に結果を取得する
+        bool cont = true;
+        for(decltype(resultSet)::value_type::size_type i = 0; cont; ++i) {
+            for(auto& result : resultSet) {
+                if (result.size() <= i) {
+                    cont = false;
+                    break;
                 }
+                os << result.at(i);
             }
         }
 
-        std::cout << totalStr;
+        return;
+    }
+
+    void SolveAll(SizeType sizeOfThreads, std::ostream& os) {
+        if (sizeOfThreads <= 1) {
+            solveAllInSingleThread(os);
+        } else {
+            solveAllWithThreads(sizeOfThreads, os);
+        }
         return;
     }
 
@@ -81,6 +87,7 @@ namespace {
     using SizeOfThreads = unsigned int;
     SizeOfThreads GetSizeOfThreads(const char* pArg) {
 #ifdef __CYGWIN__
+        // Cygwinでマルチスレッド実行すると却って遅くなる
         return 1;
 #else
         std::string arg = pArg;
@@ -92,7 +99,7 @@ namespace {
 
         if (arg.size() > opt.size()) {
             auto n = atoi(pArg + opt.size());
-            if (n != 0) {
+            if (n > 0) {
                 return n;
             }
         }
@@ -104,7 +111,7 @@ namespace {
 
 int main(int argc, char* argv[]) {
     SizeOfThreads sizeOfThreads = (argc > 1) ? GetSizeOfThreads(argv[1]) : 1;
-    SolveAll(sizeOfThreads);
+    SolveAll(sizeOfThreads, std::cout);
     return 0;
 }
 

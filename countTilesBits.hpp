@@ -12,6 +12,7 @@ namespace TileSetSolver {
     constexpr SizeType SizeOfTileSet = 5;  // 対子 + 刻子または順子 * 4 で5組
     constexpr SizeType SizeOfCompleteTiles = 14;  // あがり形の牌の数
     constexpr SizeType SizeOfOneTile = 4;         // 1種は4牌
+    constexpr SizeType SizeOfBitsPerTile = 5;     // 1種は4牌だが、パディングを1bit用意する
     constexpr SizeType TileMin = 1;        // 牌の数字の最小値
     constexpr SizeType TileMax = 9;        // 牌の数字の最大値
 
