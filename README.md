@@ -26,6 +26,7 @@ make
 |:------|:------|
 |countTiles.rb|Rubyでバックトラッキングして解く|
 |countTiles.cpp|C++14でバックトラッキングして解く|
+|countTilesBits*|C++11 + インラインアセンブリで解く|
 |countTiles.hs|Haskellでバックトラッキングして解く|
 |countTilesSlow.hs|Haskellで総当たりで解く(とても遅い)|
 |countTilesShort.hs|ソースコードをできる限り短くしたもの(633 Bytes)|
@@ -33,6 +34,8 @@ make
 |countTilesCompareLog.rb|countTiles.* の実行結果を調べる|
 |countTilesCheckHs.rb|*.hsの実行結果を調べる|
 |Makefile|ビルドする|
+
+countTilesBitsをMinGW でビルドする場合は、Boost C++ Librariesが必要です。Distro 14.1でビルドできます。詳しくは[こちら](countTiles.md) をご参照ください。
 
 ## ライセンス
 
