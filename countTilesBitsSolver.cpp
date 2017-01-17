@@ -6,18 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <iostream>
-#include <vector>
 #include "countTilesBits.hpp"
-
-namespace TileSetSolver {
-    // 結果の文字列とキー
-    struct StringKey {
-        std::string str;
-        TileKey     key;
-    };
-
-    using StringKeyArray = std::vector<StringKey>;  // 文字列+キーの配列
-}
 
 using namespace TileSetSolver;
 
@@ -40,90 +29,133 @@ public:
         return tileMap_;
     }
 
-    inline void Print(std::string& str, TileKey& tileKey) {
-        TileMap parentheses = (open_) ? (']' + '[' * 256) : (')' + '(' * 256);
-        TileMap mask = 1;
-        mask <<= SizeOfBitsPerTile;
+    inline TileKey GetKey(void) {
+        TileKey tileKey = 0;
 
-        TileMap strAsTileMap[2] = {0, 0};
-        tileKey = 0;
-        strAsTileMap[0] = tileMapToString(tileMap_, parentheses, tileKey);
-        str += reinterpret_cast<char*>(&strAsTileMap);
+        asm (
+            ".set  RegPattern,  r13 \n\t"
+            ".set  RegPos,      r14 \n\t"
+            ".set  RegMask,     r15 \n\t"
 
-        // open (1bit) : patternTableのインデックス (5bits) : RegPos / 4 (4bits)
-        tileKey |= ((open_) ? OpenKey : 0);
-        return;
+            // openならビットを立てる
+            "mov     RegPattern, 1 << 5 \n\t"
+            "xor     %0, %0 \n\t"
+            "or      %2, %2 \n\t"
+            "cmovnz  %0, RegPattern \n\t"
+
+            // ビットマスク 10000100111bで、順子と刻子を同時に取り出す
+            "mov     RegPattern, 0x427 \n\t"
+            "tzcnt   RegPos, %1  \n\t"
+            // 全bitが0ということはない
+
+            "shlx    RegMask, RegPattern, RegPos \n\t"
+            "pext    RegMask, %1, RegMask \n\t"
+            // 最右のbit位置を4で割る。1牌5ビットなので、表で調整する。
+            "shr     RegPos, 2 \n\t"
+            // メモリの範囲内に収める
+            "and     RegPos,  0xf \n\t"
+            "and     RegMask, 0x1f \n\t"
+            "or      %0, RegMask \n\t"
+            "shl     %0, 4 \n\t"         // 0x0-0xf
+            "or      %0, RegPos \n\t"
+            :"=&r"(tileKey):"r"(tileMap_),"r"(open_):"r13","r14","r15");
+
+        return tileKey;
+    }
+
+    inline static SizeType Print(TileKey tileKey, ResultString& str, SizeType currentLength) {
+        TileMap parentheses = (tileKey & OpenKey) ? (']' + '[' * 256) : (')' + '(' * 256);
+        TileMap strAsTileMap = tileMapToString(tileKey, parentheses);
+        SizeType length = 0;
+
+        asm volatile (
+            // 8文字単位のビット数 = 文字数を探す
+            "mov  r15, %1 \n\t"
+            "bsr  %0, %1 \n\t"
+            "shr  %0, 3  \n\t"
+            "add  %0, 1  \n\t"
+
+            // 32bitアラインメントは考慮しない(64bitアラインメントは必要)
+            "mov  dword ptr [%2], r15d \n\t"
+            "shr  r15, 32 \n\t"
+            "mov  dword ptr [%2 + 4], r15d \n\t"
+            :"=&r"(length):"r"(strAsTileMap),"r"(str.value + currentLength):"r15","memory");
+
+        return (length + currentLength);
     }
 
     // 左括弧、文字列、右括弧、NUL終端をつけた文字列を整数として返す
-    inline TileMap tileMapToString(TileMap tileMap, TileMap parentheses, TileKey& tileKey) {
-        TileMap strAsTileMap = 0;
+    inline static TileMap tileMapToString(TileKey tileKey, TileMap parentheses) {
+        // 牌の並び(1,2,3番目) + 足りない牌のシフト回数(枚数*8)
+        static constexpr uint8_t patternTable[] = {
+            0, 0, 0, 0,  1, 0, 0, 16,  0, 0, 0, 0,  1, 1, 0, 8,
+            0, 0, 0, 0,  0, 0, 0, 0,   0, 0, 0, 0,  1, 1, 1, 0,
+            0, 0, 0, 0,  2, 1, 0, 8,   0, 0, 0, 0,  0, 0, 0, 0,
+            0, 0, 0, 0,  0, 0, 0, 0,   0, 0, 0, 0,  0, 0, 0, 0,
+            0, 0, 0, 0,  3, 1, 0, 8,   0, 0, 0, 0,  0, 0, 0, 0,
+            0, 0, 0, 0,  0, 0, 0, 0,   0, 0, 0, 0,  0, 0, 0, 0,
+            0, 0, 0, 0,  3, 2, 1, 0,   0, 0, 0, 0,  0, 0, 0, 0,
+            0, 0, 0, 0,  0, 0, 0, 0,   0, 0, 0, 0,  0, 0, 0, 0
+        };
         static constexpr uint32_t baseTable[] = {'0', '0', '1', '2', '2', '3', '4', '5', '6',
                                                  '7', '7', '8', 'a', 'a', 'a', 'a'};
-        static constexpr uint8_t patternTable[] = {
-            0, 0, 0, 0,  1, 0, 0, 0,  0, 0, 0, 0,  1, 1, 0, 0,
-            0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  1, 1, 1, 0,
-            0, 0, 0, 0,  2, 1, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
-            0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
-            0, 0, 0, 0,  3, 1, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
-            0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
-            0, 0, 0, 0,  3, 2, 1, 0,  0, 0, 0, 0,  0, 0, 0, 0,
-            0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0
-        };
 
+        TileMap strAsTileMap = 0;
         asm (
-            ".set  RegPattern,  r11 \n\t"
-            ".set  RegPatternD, r11d \n\t"
-            ".set  RegPatternB, r11b \n\t"
-            ".set  RegPos,      r12 \n\t"
-            ".set  RegMask,     r13 \n\t"
-            // ビットマスク 10000100111bで、順子と刻子を同時に取り出す
-            "mov   RegPattern, 0x427 \n\t"
-            "tzcnt RegPos, %2  \n\t"
-            // 全bitが0ということはない
-
-            "shlx  RegMask, RegPattern, RegPos \n\t"
-            "pext  RegMask, %2, RegMask \n\t"
-            // 最右のbit位置を4で割る。1牌5ビットなので、表で調整する。
-            "shr   RegPos, 2 \n\t"
-            // メモリの範囲内に収める
-            "and   RegPos,  0xf \n\t"
-            "and   RegMask, 0x1f \n\t"
-            "mov   RegPatternD, [%4 + RegMask * 4] \n\t"
-            "mov   %1, RegMask \n\t"
-            "shl   %1, 4 \n\t"         // 0x0-0xf
-
-            ".set  RegBaseChar,  r13 \n\t"
-            ".set  RegBaseCharD, r13d \n\t"
-            ".set  RegLeft,      r14  \n\t"
-            ".set  RegChar,      r15  \n\t"
+            ".set  RegLeft,      r12 \n\t"
+            ".set  RegPattern,   r13 \n\t"
+            ".set  RegPatternD,  r13d \n\t"
+            ".set  RegBaseChar,  r14 \n\t"
+            ".set  RegBaseCharD, r14d \n\t"
+            ".set  RegChar,      r15 \n\t"
             ".set  RegCharD,     r15d \n\t"
-            "mov   RegBaseCharD, [%3 + RegPos * 4] \n\t"
-            "or    %1, RegPos \n\t"
 
-            "mov   %0, %5 \n\t"
+            "mov   %0, %2 \n\t"
             "and   %0, 0xff \n\t"       // 左括弧
-            "mov   RegLeft, %5 \n\t"
+            "shl   %0, 8 \n\t"
+            "mov   RegLeft, %2 \n\t"
             "shr   RegLeft, 8 \n\t"
             "and   RegLeft, 0xff \n\t"  // 右括弧
 
-            "1: \n\t"
-            // '1'...'9' + patternTable[]
+            // open (1bit) : patternTableのインデックス (5bits) : RegPos / 4 (4bits)
+            "mov   RegPattern, %1 \n\t"
+            "shr   RegPattern, 4  \n\t"
+            "and   RegPattern, 0x1f \n\t"
+            "mov   RegPatternD, [%3 + RegPattern * 4] \n\t"
+
+            "mov   RegBaseChar, %1 \n\t"
+            "and   RegBaseChar, 0xf \n\t"
+            "mov   RegBaseCharD, [%4 + RegBaseChar * 4] \n\t"
+
+            // 1文字目
             "mov   RegCharD, RegPatternD \n\t"
             "and   RegCharD, 0xff \n\t"
-            "jz    2f \n\t"
-
             "add   RegCharD, RegBaseCharD \n\t"
+            "or    %0, RegChar \n\t"
             "shl   %0, 8 \n\t"
+            "shr   RegPatternD, 8 \n\t"
+
+            // 2文字目
+            "mov   RegCharD, RegPatternD \n\t"
+            "and   RegCharD, 0xff \n\t"
+            "add   RegCharD, RegBaseCharD \n\t"
+            "or    %0, RegChar \n\t"
+            "shl   %0, 8 \n\t"
+            "shr   RegPatternD, 8 \n\t"
+
+            // 3文字目
+            "mov   RegCharD, RegPatternD \n\t"
+            "and   RegCharD, 0xff \n\t"
+            "add   RegCharD, RegBaseCharD \n\t"
             "or    %0, RegChar \n\t"
             "shr   RegPatternD, 8 \n\t"
-            "jmp   1b \n\t"
 
-            "2: \n\t"
+            // 余分な文字を削除する
+            "shrx  %0, %0, RegPattern \n\t"
+            // 右括弧
             "shl   %0, 8 \n\t"
-            "or    %0, RegLeft \n\t"  // 右括弧
-
-            :"=&r"(strAsTileMap),"=&r"(tileKey):"r"(tileMap),"r"(baseTable),"r"(patternTable),"r"(parentheses):"r11","r12","r13","r14","r15");
+            "or    %0, RegLeft \n\t"
+            :"=&r"(strAsTileMap):"r"(tileKey),"r"(parentheses),"r"(patternTable),"r"(baseTable):"r12","r13","r14","r15");
 
         return strAsTileMap;
     }
@@ -150,7 +182,7 @@ public:
         return;
     }
 
-    inline void Filter(TileIndex extra, StringKeyArray& stringKeyArray, SetArray& newFullSetArray) {
+    inline void Filter(TileIndex extra, KeyArray& keyArray, ResultStringArray& stringArray) {
         TileMap mask = 0xf;
         mask <<= (extra * SizeOfBitsPerTile);
 
@@ -173,12 +205,12 @@ public:
                 auto newFullSet = *this;
                 newFullSet.Set(newSet, i);
 
-                auto newStringKey = newFullSet.Print();
-                if (std::find_if(stringKeyArray.begin(), stringKeyArray.end(),
-                                 [&](const StringKey& arg) -> bool
-                                 {return (arg.key == newStringKey.key); }) == stringKeyArray.end()) {
-                    stringKeyArray.push_back(std::move(newStringKey));
-                    newFullSetArray.push_back(std::move(newFullSet));
+                auto key = newFullSet.GetKey();
+                if (std::find_if(keyArray.begin(), keyArray.end(),
+                                 [&](TileKey arg) -> bool
+                                 {return (arg == key); }) == keyArray.end()) {
+                    keyArray.push_back(key);
+                    stringArray.push_back(TileFullSet::Print(key));
                 }
             }
             ++i;
@@ -187,8 +219,7 @@ public:
         return;
     }
 
-    inline StringKey Print(void) {
-        StringKey strKey;
+    inline TileKey GetKey(void) {
         TileKey openKey = 0;
         TileKey key1 = 0;
         TileKey key2 = 0;
@@ -197,8 +228,7 @@ public:
         SizeType i = 0;
 
         for(auto& tileSet : tileSetArray_) {
-            TileKey tileKey = 0;
-            tileSet.Print(strKey.str, tileKey);
+            TileKey tileKey = tileSet.GetKey();
 
             if ((tileKey & OpenKey) != 0) {
                 openKey = tileKey;
@@ -256,8 +286,6 @@ public:
             ++i;
         }
 
-        strKey.str += "\n";
-
         TileKey totalTileKey = openKey;
         totalTileKey <<= SizeOfKeyBits;
         totalTileKey |= key1;
@@ -267,8 +295,23 @@ public:
         totalTileKey |= key3;
         totalTileKey <<= SizeOfKeyBits;
         totalTileKey |= key4;
-        strKey.key = totalTileKey;
-        return strKey;
+        return totalTileKey;
+    }
+
+    inline static ResultString Print(TileKey tileKey) {
+        ResultString str;
+        SizeType length = 0;
+
+        constexpr TileKey mask = (1 << SizeOfKeyBits) - 1;
+        TileKey rest = tileKey;
+        for(SizeType i = 0; i < SizeOfTileSet; ++i) {
+            length = TileSet::Print(rest & mask, str, length);
+            rest >>= SizeOfKeyBits;
+        }
+
+        str.value[ResultStringLength - 1] = '\n';
+        str.value[ResultStringLength] = 0;
+        return str;
     }
 
 private:
@@ -284,17 +327,14 @@ public:
     }
 
     // 決め打ちした牌を除いて解を作る
-    inline void Filter(TileIndex extra, StringKeyArray& stringKeyArray) {
-        decltype(fullSetArray_) newFullSetArray;
+    inline void Filter(TileIndex extra, KeyArray& keyArray, ResultStringArray& stringArray) {
         for(auto& fullSet : fullSetArray_) {
-            fullSet.Filter(extra, stringKeyArray, newFullSetArray);
+            fullSet.Filter(extra, keyArray, stringArray);
         }
-
-        fullSetArray_.swap(newFullSetArray);
     }
 
 private:
-    TileFullSet::SetArray fullSetArray_;
+    std::vector<TileFullSet> fullSetArray_;
 };
 
 class Puzzle {
@@ -302,28 +342,29 @@ public:
     inline Puzzle(TileMap src) : src_(src) {}
 
     inline std::string Find(void){
-        StringKeyArray stringKeyArray;
-        findAll(src_, stringKeyArray);
+        ResultStringArray stringArray;
+        findAll(src_, stringArray);
 
         // テスト用に「待ち無し」を返す
-        if (stringKeyArray.empty()) {
+        if (stringArray.empty()) {
             std::string noneResult {"(none)\n"};
             return noneResult;
         }
 
         std::string result;
-        for(auto strKey : stringKeyArray) {
-            result += strKey.str;
+        for(auto str : stringArray) {
+            result += str.value;
         }
         return result;
     }
 
 private:
     // tileMapの待ちを調べる
-    inline void findAll(TileMap tileMap, StringKeyArray& stringKeyArray) {
+    inline void findAll(TileMap tileMap, ResultStringArray& stringArray) {
         constexpr TileMap mask5th = 0x2108421084200ull;  // 1..9のいずれかに5牌目がある
         TileMap lowerMask = 1;
         TileMap fullMask = 0x1f;
+        KeyArray keyArray;
 
         // extraを待ちと決め打ちして調べる
         for(TileIndex extra=1; extra<=TileMax; ++extra) {
@@ -347,7 +388,7 @@ private:
                 :"=&r"(newTileMap):"r"(tileMap),"r"(lowerMask),"r"(fullMask),"r"(mask5th):"r14","r15");
 
             if (newTileMap != 0) {
-                findWithExtra(newTileMap, extra, stringKeyArray);
+                findWithExtra(newTileMap, extra, keyArray, stringArray);
             }
         }
 
@@ -355,7 +396,8 @@ private:
     }
 
     // tileMapに待ちextraを決め打ちして待ちを調べる
-    inline void findWithExtra(TileMap tileMap, TileMap extra, StringKeyArray& stringKeyArray) {
+    inline void findWithExtra(TileMap tileMap, TileMap extra,
+                              KeyArray& keyArray, ResultStringArray& stringArray) {
         TileMap lowerMask = 3;
         TileMap fullMask = 0x1f;
 
@@ -394,7 +436,7 @@ private:
             TileSet tileSet(tilePair);
             fullSet.Set(tileSet, 0);
             splitTileMap(rest, fullSet, 1, false, solution);
-            solution.Filter(extra, stringKeyArray);
+            solution.Filter(extra, keyArray, stringArray);
         }
     }
 
