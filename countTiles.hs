@@ -18,30 +18,31 @@ sizeOfStr = sizeOfParts * 5 - 2
 
 -- 刻子ならその3牌を返す
 tileTriple (a:b:c:xs) | (a == b) && (b == c) && (a >= 1) && (c <= 9) = Just [a,b,c]
-                      | otherwise = Nothing
+tileTriple otherwise = Nothing
 
 -- 順子ならその3牌を返す
 tileSequence (a:b:c:xs) | ((a + 1) == b) && ((b + 1) == c) && (a >= 1) && (c <= 9) = Just [a,b,c]
-                        | otherwise = Nothing
+tileSequence otherwise = Nothing
 
 -- 刻子または順子があればそれぞれ3牌を返す
 -- [10, 11]は、異種の牌が足りないときに、マッチングしないようにするダミー
-threeTiles tiles = [tileTriple tiles, tileSequence $ sort $ (nub tiles) ++ [10, 11]]
+threeTiles tiles = map ($ tiles) [tileTriple, f]
+  where f ts = tileSequence $ sort $ (nub ts) ++ [10, 11]
 
 -- leftからtsの3牌を取り除いてrightに移す
-moveThreeTiles left right Nothing = [[]]
-moveThreeTiles left right (Just ts) = concat $ splitTo4x3tiles (left \\ ts) (right ++ ts)
+moveThreeTiles _ _ Nothing = [[]]
+moveThreeTiles left right (Just ts) = splitTo4x3tiles (left \\ ts) (right ++ ts)
 
 -- leftから3牌ずつ取り除いてrightに移す
 -- これ以上取り除くものがなければバックトラッキングを終了して結果を返す
-splitTo4x3tiles left right | ((length left) > 0) = map (moveThreeTiles left right) (threeTiles left)
-                           | ((length left) == 0) = [[right]]
+splitTo4x3tiles [] right = [right]
+splitTo4x3tiles left right = concatMap (moveThreeTiles left right) (threeTiles left)
 
 -- 14牌のtsの対子を[p,p]に固定して、対子以外の12牌について、
 -- 左から右に移しながらバックトラッキングを行う
 setPairAndSearch ts p | (length (ts \\ [p,p])) == ((length ts) - 2) =
-                          map (\x -> ([p,p] ++ x)) (concat $ splitTo4x3tiles (ts \\ [p,p]) [])
-                      | otherwise = [[]]
+                          map (\x -> ([p,p] ++ x)) (splitTo4x3tiles (ts \\ [p,p]) [])
+setPairAndSearch _ _ = [[]]
 
 -- 同種の牌は4個以下(5個以上あればTrue, そうでなければFalse)
 hasQuint [] = False
@@ -50,12 +51,12 @@ hasQuint (a:xs) = hasQuint xs
 
 -- 手牌13牌(ts)に1牌(e)を追加し、対子を決め打ちして
 -- バックトラッキングを行い、候補一覧を取得する
-addOneAndSearch ts e | hasQuint (sort (ts ++ [e])) == False = map (setPairAndSearch $ sort (ts ++ [e])) [1..9]
+addOneAndSearch ts e | hasQuint (sort (ts ++ [e])) == False = concatMap (setPairAndSearch $ sort (ts ++ [e])) [1..9]
                      | otherwise = [[]]
 
 -- 手牌13牌(ts)に1牌(e)を追加してバックトラッキングを行い、候補をすべて取得する
 -- バックトラッキング途中で打ち切った場合は14牌ないので捨てる
-searchFullSet ts e = filter (\ls -> (length ls) == (sizeOfInput + 1)) $ concat $ addOneAndSearch ts e
+searchFullSet ts e = filter (\ls -> (length ls) == (sizeOfInput + 1)) $ addOneAndSearch ts e
 
 -- 牌の並びtsを文字列にする
 tilesToString ts = foldr (++) "" $ map show ts
