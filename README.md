@@ -29,7 +29,7 @@ make
 |countTilesBits*|C++11 + インラインアセンブリで解く|
 |countTiles.hs|Haskellでバックトラッキングして解く|
 |countTilesSlow.hs|Haskellで総当たりで解く(とても遅い)|
-|countTilesShort.hs|ソースコードをできる限り短くしたもの(633 Bytes)|
+|countTilesShort.hs|ソースコードをできる限り短くしたもの(534 Bytes)|
 |countTilesEx.hs|ソースコードに縦読みを仕込んだもの|
 |countTilesCompareLog.rb|countTiles.* の実行結果を調べる|
 |countTilesCheckHs.rb|*.hsの実行結果を調べる|

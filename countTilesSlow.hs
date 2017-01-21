@@ -39,6 +39,7 @@ toStrSet _ [] = [[]]
 toStrSet e (t:ts) = [i:rest | i <- [openStr t e, closeStr t], rest <- (toStrSet e ts)]
 
 -- 同種の牌は4個以下(5個以上あればTrue, そうでなければFalse)
+-- a..eがソート済であれば、a == e だけ評価すればよい
 hasQuint [] = False
 hasQuint (a:b:c:d:e:xs) | (a == b) && (b == c) && (c == d) && (d == e) = True
 hasQuint (a:xs) = hasQuint xs
@@ -48,6 +49,10 @@ allTileSet ts e = concatMap (toStrSet e) $ filter f $ tiles sizeOfParts
   where f l = ((sort $ ts ++ [e]) == (sort $ concat l)) && (hasQuint (sort (concat l)) == False)
 
 -- 全文字列のうち、手配 + 待ち牌となりうるもので、待ち形が成立するもの
+-- 実はsが23文字であることを確認する必要はない、なぜなら
+-- 待ちがなければ[[はないので、[[を除いた後も24文字であり、
+-- 待ちが2個あれば(..?)を[[に置き換えて22文字以下になり、[[を除くと20文字以下になる
+-- 各行の待ち形/完成形がソートされるので、[[があれば行末に[[が集まる
 solveAll ts = formatLines $ filter f $ map foldToStr $ nub $ sort $ map sort $ concatMap (allTileSet ts) [1..9]
   where f s = (((length s) == sizeOfStr) && ((length ((s \\ "[") \\ "[")) == (sizeOfStr - 1)))
         formatLines lines = concatMap (++ "\n") $ map (filter (/= '"')) $ map show lines
