@@ -538,9 +538,9 @@ namespace {
     // 待ち形の順列で、numberの次を見つけて、nextNumberに設定する
     // これ以上待ち形がないときは非0を、あれば0返す
     // numberの待ち形をtileMapに設定する
-    // numberの待ち形をpatternStrを設定する場合は、enablePatternにfalseを、設定しないときはfalseを設定する
+    // numberの待ち形を解いて文字列を設定する場合は、enablePatternにfalseを、設定しないときはfalseを設定する
     inline TileMap enumerateOne(bool enablePattern, TileMap number,
-                                TileMap& tileMap, TileMap& nextNumber, std::string& patternStr) {
+                                TileMap& tileMap, TileMap& nextNumber, StrArray& result) {
         TileMap invalid = 0;
         TileMap enablePatternQ = enablePattern;
 
@@ -687,7 +687,13 @@ namespace {
             "41: \n\t"
             :"=&a"(tileMap),"=&b"(nextNumber),"+c"(enablePatternQ),"=&D"(invalid):"d"(number),"S"(patternCharSet):"r8","r9","r10","r11","r12","r13","r14","r15","memory");
 
-        patternStr = patternCharSet;
+        if (enablePattern) {
+            std::string patternStr = patternCharSet;
+            Puzzle puzzle(tileMap);
+            patternStr += puzzle.Find();
+            result.push_back(std::move(patternStr));
+        }
+
         return invalid;
     }
 }
@@ -701,20 +707,9 @@ namespace TileSetSolver {
         TileMap nextNumber = 0;
         TileMap invalid = 0;
 
+        // while{}より速い
         do {
-            bool enablePattern = (patternIndex == indexOffset);
-            {
-                std::string patternStr;
-                invalid = enumerateOne(enablePattern, number, tileMap, nextNumber, patternStr);
-
-                if (enablePattern) {
-                    // ある牌の組み合わせについてを待ちを取得する
-                    Puzzle puzzle(tileMap);
-                    patternStr += puzzle.Find();
-                    result.push_back(std::move(patternStr));
-                }
-            }
-
+            invalid = enumerateOne((patternIndex == indexOffset), number, tileMap, nextNumber, result);
             ++patternIndex;
             patternIndex = (patternIndex >= stepSize) ? 0 : patternIndex;
             number = nextNumber;
