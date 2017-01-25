@@ -12,11 +12,11 @@ r=foldr(++)""
 k x=m show x
 n=r.k
 o e[]=[[]]
-o e(x:y)=[i:j|i<-[if(l x>l(x\\e))then("["++n(x\\e)++"]")else"[[","("++n x++")"],j<-(o e y)]
+o e(x:y)=[i:j|i<-[if l x>l(x\\e)then"["++n(x\\e)++"]"else"[[","("++n x++")"],j<-o e y]
 q[]=False
 q(a:b:i:j:x:y)|a==x=True
 q(a:x)=q x
 u x e=c$m(o[e])$f(\i->s(e:x)==(s.c)i&&(not.q.s.c)i)$t 5
 v x=22==l(x\\"[[")
-w x=c$m(++"\n")$m(f(/='"'))$k$f v$m r$nub$s$m s$c$m(u x)z
-main=getLine>>=(\x->putStr$w$take 13$(m(read.(:""))x::[Int]))
+w x=c$m((++"\n").f(/='"'))$k$f v$m r$nub$m s$c$m(u x)z
+main=getLine>>=putStr.w.take 13.m((+0).read.(:""))

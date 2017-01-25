@@ -23,6 +23,13 @@ class TestCaseSet
   def initialize
   end
 
+  # 解の表現をそろえて、文字列として同一かどうかで比較できるようにする
+  def sortSolution(solution)
+    solution.lines.map do |line|
+      line.chomp.scan(/\D\d+\D/).sort.join
+    end.sort.join("\n")
+  end
+
   # テストが期待値と一致すればtrue、相違があればfalseを返す
   def testAll
     exeSet = EXECUTABLE_SET
@@ -35,9 +42,7 @@ class TestCaseSet
         actual = `cat #{logname}`
         str = "#{exename} actual:\n#{actual}"
         str += "expected:\n#{expected}"
-
-        removeCr = -> str { str.gsub(/\r+/,"") }
-        result = (removeCr.call(expected) == removeCr.call(actual))
+        result = (sortSolution(expected) == sortSolution(actual))
         str += (result ? "Passed" : "Failed")
         str += "\n\n"
 
