@@ -26,7 +26,7 @@ make
 |:------|:------|
 |countTiles.rb|Rubyでバックトラッキングして解く|
 |countTiles.cpp|C++14でバックトラッキングして解く|
-|countTilesBits*|C++11 + インラインアセンブリで解く|
+|countTilesBits*|C++11 + インラインアセンブリで解く : [説明](countTiles.md) |
 |countTiles.hs|Haskellでバックトラッキングして解く|
 |countTilesSlow.hs|Haskellで総当たりで解く(とても遅い)|
 |countTilesShort.hs|ソースコードをできる限り短くしたもの(515 Bytes)|

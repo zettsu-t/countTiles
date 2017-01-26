@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <iostream>
+#include <nmmintrin.h>
 #include "countTilesBits.hpp"
 
 using namespace TileSetSolver;
@@ -97,8 +98,9 @@ public:
             0, 0, 0, 0,  3, 2, 1, 0,   0, 0, 0, 0,  0, 0, 0, 0,
             0, 0, 0, 0,  0, 0, 0, 0,   0, 0, 0, 0,  0, 0, 0, 0
         };
-        static constexpr uint32_t baseTable[] = {'0', '0', '1', '2', '2', '3', '4', '5', '6',
-                                                 '7', '7', '8', 'a', 'a', 'a', 'a'};
+
+        static constexpr uint32_t baseTable[] = {
+            '0', '1', '2', '3', '3',  '4', '5', '6', '7', '7',  '8', 'a', 'a', 'a', 'a', 'a'};
 
         TileMap strAsTileMap = 0;
         asm (
@@ -184,7 +186,7 @@ public:
 
     inline void Filter(TileIndex extra, KeyArray& keyArray, ResultStringArray& stringArray) {
         TileMap mask = 0xf;
-        mask <<= (extra * SizeOfBitsPerTile);
+        mask <<= ((extra - 1) * SizeOfBitsPerTile);
 
         SizeType i = 0;
         for(auto& tileSet : tileSetArray_) {
@@ -361,15 +363,13 @@ public:
 private:
     // tileMapの待ちを調べる
     inline void findAll(TileMap tileMap, ResultStringArray& stringArray) {
-        constexpr TileMap mask5th = 0x2108421084200ull;  // 1..9のいずれかに5牌目がある
+        constexpr TileMap mask5th = 0x108421084210ull;  // 1..9のいずれかに5牌目がある
         TileMap lowerMask = 1;
         TileMap fullMask = 0x1f;
         KeyArray keyArray;
 
         // extraを待ちと決め打ちして調べる
         for(TileIndex extra=1; extra<=TileMax; ++extra) {
-            lowerMask <<= SizeOfBitsPerTile;
-            fullMask <<= SizeOfBitsPerTile;
             TileMap newTileMap = 0;
 
             asm (
@@ -390,6 +390,9 @@ private:
             if (newTileMap != 0) {
                 findWithExtra(newTileMap, extra, keyArray, stringArray);
             }
+
+            lowerMask <<= SizeOfBitsPerTile;
+            fullMask <<= SizeOfBitsPerTile;
         }
 
         return;
@@ -403,8 +406,6 @@ private:
 
         // 1..9 の対子について調べる
         for(TileIndex i=TileMin; i<=TileMax; ++i) {
-            lowerMask <<= SizeOfBitsPerTile;
-            fullMask <<= SizeOfBitsPerTile;
             TileMap tilePair = 0;
             TileMap rest = 0;
 
@@ -427,16 +428,17 @@ private:
                 "cmovz  %0, %3   \n\t"
                 :"=&r"(tilePair),"=&r"(rest):"r"(tileMap),"r"(lowerMask),"r"(fullMask):"r15");
 
-            if (!tilePair) {
-                continue;
-            }
+            lowerMask <<= SizeOfBitsPerTile;
+            fullMask <<= SizeOfBitsPerTile;
 
-            TileFullSet fullSet;
-            Solution solution;
-            TileSet tileSet(tilePair);
-            fullSet.Set(tileSet, 0);
-            splitTileMap(rest, fullSet, 1, false, solution);
-            solution.Filter(extra, keyArray, stringArray);
+            if (tilePair) {
+                TileFullSet fullSet;
+                Solution solution;
+                TileSet tileSet(tilePair);
+                fullSet.Set(tileSet, 0);
+                splitTileMap(rest, fullSet, 1, false, solution);
+                solution.Filter(extra, keyArray, stringArray);
+            }
         }
     }
 
@@ -502,8 +504,12 @@ private:
                               TileMap& extracted, TileMap& rest) {
         asm (
             "mov  %1, %2  \n\t"
-            "mov  ecx, 10 \n\t"
+            "mov  r15, %2  \n\t"
+            "and  r15, %3  \n\t"
+            "cmp  r15, %3  \n\t"
+            "jz   2f \n\t"
 
+            "mov  ecx, 8 \n\t"
             "1: \n\t"
             // 次の牌の組を調べる
             "shl  %3, 5  \n\t"
@@ -513,16 +519,17 @@ private:
             "and  r15, %3  \n\t"
             "cmp  r15, %3  \n\t"
             "loopne 1b \n\t"
-            "jnz    2f \n\t"
+            "jnz    3f \n\t"
 
             // ビットパターンが見つかったので取り出す
+            "2: \n\t"
             "pext  r15, %2,  %5  \n\t"
             "pdep  r15, r15, %4  \n\t"
             "andn  %1, %4, %1 \n\t"
             "or    %1, r15    \n\t"
 
             // ビットパターンが見つかったらその値、見つからなければ0を返す
-            "2: \n\t"
+            "3: \n\t"
             "xor  %0, %0  \n\t"
             "cmp  %1, %2  \n\t"
             "cmovnz  %0, %3  \n\t"
@@ -545,8 +552,15 @@ namespace {
         TileMap enablePatternQ = enablePattern;
 
         // enablePattern をメモリ渡しする
-        char patternCharSet[SizeOfCompleteTiles + 2] = {
-            0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, ':', '\n', 0};
+        union PatternCharSet {
+            char str[SizeOfCompleteTiles + 3];  // 文字列
+            __m128 xReg[2];  // XMMレジスタのアラインメント用
+        };
+        static_assert((alignof(PatternCharSet) % 16) == 0, "Unexpected xmmRegister alignment");
+
+        // XMMレジスタから文字を取り出すパターンを用意して、文字列を受け取る
+        // 最後の一文字は受け取らないので、オーバラン防止用に0固定にする
+        PatternCharSet patternCharSet = {{14, 5, 13, 4, 12, 3, 11, 2, 10, 1, 9, 0, 8, 6, 7, 15, 0}};
 
         asm (
             ".set  RegTileMap,    rax \n\t"
@@ -566,22 +580,44 @@ namespace {
             "jz    21f \n\t"
 
             // numberを文字列にする
-            ".set  RegStrPtr, r8 \n\t"
-            ".set  RegRest,   r9 \n\t"
-            ".set  RegWork11, r10 \n\t"
+            ".set  RegOddSet,    r8 \n\t"
+            ".set  RegEvenSet,   r9 \n\t"
+            ".set  RegDigitSet,  r10 \n\t"
+            ".set  RegDigitSetD, r10d \n\t"
+            ".set  XRegString,   xmm14 \n\t"
+            ".set  XRegDigitSet, xmm15 \n\t"
+            ".set  ConstCharZero, '0'  \n\t"
 
-            "mov   RegStrPtr, RegPatternCharSet \n\t"
-            "sub   RegStrPtr, RegOne \n\t"
-            "mov   RegRest,   RegNumber \n\t"
-            "mov   ecx, 13 \n\t"
+            // xmmレジスタを'0'で埋める
+            "mov      RegDigitSetD, ConstCharZero \n\t"
+            "vpinsrd  XRegString, XRegString, RegDigitSetD, 0 \n\t"
+            "xorps    XRegDigitSet, XRegDigitSet \n\t"
+            "vpshufb  XRegString, XRegString, XRegDigitSet \n\t"
 
-            "11: \n\t"
-            "shr   RegRest, 4   \n\t"
-            "mov   RegWork11, RegRest \n\t"
-            "and   RegWork11, 0xf  \n\t"
-            "add   RegWork11, 0x30 \n\t"  // '0'
-            "mov   [RegStrPtr + rcx], r10b \n\t"
-            "loop  11b\n\t"
+            // 奇数番目の桁と偶数番目の桁を分ける
+            "mov     RegDigitSet, 0xf0f0f0f0f0f0f \n\t"
+            "mov     RegOddSet,  RegNumber \n\t"
+            "shr     RegOddSet,  4 \n\t"
+            "mov     RegEvenSet, RegNumber \n\t"
+            "and     RegOddSet,  RegDigitSet \n\t"
+            "and     RegEvenSet, RegDigitSet \n\t"
+
+            // 最上位の2 bytesを"\n:"-"00"にする
+            "mov      RegDigitSetD, 0xda0a \n\t"
+            "shl      RegDigitSet, 48 \n\t"
+            "or       RegOddSet, RegDigitSet \n\t"
+            "vpinsrq  XRegDigitSet, XRegDigitSet, RegOddSet, 0 \n\t"
+
+            // 最上位のbyteを-'0'にする
+            "mov      RegDigitSetD, -ConstCharZero \n\t"
+            "shl      RegDigitSet, 56 \n\t"
+            "or       RegEvenSet, RegDigitSet \n\t"
+            "vpinsrq  XRegDigitSet, XRegDigitSet, RegEvenSet, 1 \n\t"
+            // 各byteはwrap aroundする
+            "vpaddb   XRegString, XRegString, XRegDigitSet  \n\t"
+
+            "vpshufb  XRegString, XRegString, [RegPatternCharSet]  \n\t"
+            "vmovdqa  [RegPatternCharSet], XRegString  \n\t"
 
             // numberをビットマップにする
             "21: \n\t"
@@ -591,7 +627,6 @@ namespace {
             ".set  RegOutBitMask, r11 \n\t"
             ".set  RegWork21,     r12 \n\t"
 
-            "mov   RegTilePos, RegFour \n\t"  // 同じ牌が4つある
             "mov   RegBitMask, 0xf \n\t"      // ビットマスク
             "mov   RegRest, RegNumber \n\t"
             "mov   RegOutBitMask, 0x1f \n\t"  // 11111b
@@ -599,11 +634,10 @@ namespace {
             "mov   ecx, 13 \n\t"  // 牌の数
 
             "22: \n\t"
-            "shr   RegRest, 4 \n\t"
-
             // 桁の数字を取り出して5倍にする
             "mov   RegTilePos, RegRest \n\t"
             "and   RegTilePos, RegBitMask \n\t"
+            "sub   RegTilePos, RegOne \n\t"
             "mov   RegWork21,  RegTilePos \n\t"
             "shl   RegWork21,  2 \n\t"
             "add   RegTilePos, RegWork21 \n\t"
@@ -615,6 +649,7 @@ namespace {
             "or    RegWork21, RegOne \n\t"
             "pdep  RegWork21, RegWork21, RegTilePos \n\t"
             "or    rax, RegWork21 \n\t"
+            "shr   RegRest, 4 \n\t"
             "loop  22b\n\t"
 
             // 次の候補を探す
@@ -624,10 +659,11 @@ namespace {
             ".set RegCheckedDigit, r12 \n\t"
             ".set RegCountLow,     r13 \n\t"
 
-            "mov  RegTilePos,  RegFour \n\t" // 同じ牌が4つある
-            "mov  RegBitMask,  0xf0 \n\t"    // ビットマスク
-            "mov  RegDigit,    9 \n\t"       // 下一桁を9から順に減らしていく
+            "xor  RegTilePos, RegTilePos \n\t" // 同じ牌が4つある
+            "mov  RegBitMask, 0xf \n\t"        // ビットマスク
+            "mov  RegDigit,   9 \n\t"          // 下一桁を9から順に減らしていく
             "mov  ecx, 13 \n\t"  // ループ回数
+            "mov  RegPattern, RegDigit \n\t"
 
             "32: \n\t"
             // 下の桁から上の桁に向かってRegDigitを探す
@@ -647,6 +683,7 @@ namespace {
             "sub   RegDigit, RegCheckedDigit \n\t"
             "shl   RegBitMask, 4 \n\t"
             "add   RegTilePos, RegFour \n\t"   // 一つ上の桁をみる
+            "shlx  RegPattern, RegDigit, RegTilePos \n\t"
             "loop  32b \n\t"
 
             // すべての桁を探したが、繰り上げられる桁が見つからなかった
@@ -685,10 +722,10 @@ namespace {
             "loop  34b \n\t"
 
             "41: \n\t"
-            :"=&a"(tileMap),"=&b"(nextNumber),"+c"(enablePatternQ),"=&D"(invalid):"d"(number),"S"(patternCharSet):"r8","r9","r10","r11","r12","r13","r14","r15","memory");
+            :"=&a"(tileMap),"=&b"(nextNumber),"+c"(enablePatternQ),"=&D"(invalid):"d"(number),"S"(patternCharSet.str):"r8","r9","r10","r11","r12","r13","r14","r15","memory");
 
         if (enablePattern) {
-            std::string patternStr = patternCharSet;
+            std::string patternStr = patternCharSet.str;
             Puzzle puzzle(tileMap);
             patternStr += puzzle.Find();
             result.push_back(std::move(patternStr));
@@ -702,7 +739,7 @@ namespace TileSetSolver {
     // 各スレッドは、indexOffset番目(先頭は0)から、stepSize個間隔で、待ち形を求める
     void EnumerateAll(SizeType indexOffset, SizeType stepSize, StrArray& result) {
         decltype(indexOffset) patternIndex = 0;
-        TileMap number = 0x11112222333340;  // 辞書順で一番小さいパターン
+        TileMap number = 0x1111222233334;  // 辞書順で一番小さいパターン
         TileMap tileMap = 0;
         TileMap nextNumber = 0;
         TileMap invalid = 0;
