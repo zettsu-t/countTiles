@@ -569,15 +569,17 @@ namespace {
             ".set  RegInvalidD,   edi \n\t"
             ".set  RegNumber,     rdx \n\t"
             ".set  RegPatternCharSet, rsi \n\t"
-            ".set  RegFour, r14 \n\t"
-            ".set  RegOne,  r15 \n\t"
+            ".set  RegFour,  r14  \n\t"
+            ".set  RegFourD, r14d \n\t"
+            ".set  RegOne,   r15  \n\t"
+            ".set  RegOneD,  r15d \n\t"
 
             "xor   RegInvalidD, RegInvalidD \n\t"  // falseにする
-            "mov   RegFour, 4 \n\t"  // 定数4
-            "mov   RegOne,  1 \n\t"  // 定数1
+            "mov   RegFourD, 4 \n\t"  // 定数4
+            "mov   RegOneD,  1 \n\t"  // 定数1
 
             "or    ecx, ecx \n\t"
-            "jz    21f \n\t"
+            "jz    31f \n\t"
 
             // numberを文字列にする
             ".set  RegOddSet,    r8 \n\t"
@@ -620,49 +622,78 @@ namespace {
             "vmovdqa  [RegPatternCharSet], XRegString  \n\t"
 
             // numberをビットマップにする
-            "21: \n\t"
-            ".set  RegTilePos,    r8 \n\t"
-            ".set  RegBitMask,    r9 \n\t"
-            ".set  RegRest,       r10 \n\t"
-            ".set  RegOutBitMask, r11 \n\t"
-            ".set  RegWork21,     r12 \n\t"
+            ".set   RegTargetDigit,   r8   \n\t"
+            ".set   RegTargetDigitD,  r8d  \n\t"
+            ".set   RegRest,          r9   \n\t"
+            ".set   RegRestD,         r9d  \n\t"
+            ".set   RegPrevDigitD,    r10d \n\t"
+            ".set   RegDigitBits,     r11  \n\t"
+            ".set   RegDigitBitsD,    r11d \n\t"
+            ".set   RegDigitBitMaskD, r12d \n\t"
+            ".set   RegWork21,        r13  \n\t"
+            ".set   RegWork21D,       r13d \n\t"
 
-            "mov   RegBitMask, 0xf \n\t"      // ビットマスク
-            "mov   RegRest, RegNumber \n\t"
-            "mov   RegOutBitMask, 0x1f \n\t"  // 11111b
-            "xor   eax, eax \n\t"
-            "mov   ecx, 13 \n\t"  // 牌の数
+            "mov    RegRest, RegNumber \n\t"
+            "xor    RegPrevDigitD, RegPrevDigitD \n\t"
+            "xor    RegDigitBitsD, RegDigitBitsD \n\t"
+            "mov    RegDigitBitMaskD, 0xf \n\t"
+            "xor    eax, eax \n\t"
+            "mov    ecx, 12 \n\t"  // 最後の桁は別処理
 
-            "22: \n\t"
-            // 桁の数字を取り出して5倍にする
-            "mov   RegTilePos, RegRest \n\t"
-            "and   RegTilePos, RegBitMask \n\t"
-            "sub   RegTilePos, RegOne \n\t"
-            "mov   RegWork21,  RegTilePos \n\t"
-            "shl   RegWork21,  2 \n\t"
-            "add   RegTilePos, RegWork21 \n\t"
+            "201: \n\t"
+            // 一桁取り出す
+            "mov    RegTargetDigit,  RegRest \n\t"
+            "and    RegTargetDigitD, RegDigitBitMaskD \n\t"
+            "shr    RegRest, 4 \n\t"
 
-            "shlx  RegTilePos, RegOutBitMask, RegTilePos \n\t"
-            "pext  RegWork21, rax, RegTilePos \n\t"
-            // 111b -> 1111bに増やす
-            "shl   RegWork21, 1 \n\t"
-            "or    RegWork21, RegOne \n\t"
-            "pdep  RegWork21, RegWork21, RegTilePos \n\t"
-            "or    rax, RegWork21 \n\t"
-            "shr   RegRest, 4 \n\t"
-            "loop  22b\n\t"
+            // 桁の数字が前(隣)と同じだったら、何牌あるかはそのままにする
+            // 異なるときは0に戻す
+            "xor    RegWork21D,    RegWork21D  \n\t"
+            "cmp    RegPrevDigitD, RegTargetDigitD \n\t"
+            "cmovnz RegDigitBitsD, RegWork21D  \n\t"
+            "shl    RegDigitBitsD, 1 \n\t"
+            "or     RegDigitBitsD, RegOneD \n\t"
+            "mov    RegPrevDigitD, RegTargetDigitD \n\t"
+
+            // 桁の数字を5倍にする
+            "sub    RegTargetDigitD, RegOneD \n\t"
+            "mov    RegWork21D, RegTargetDigitD \n\t"
+            "shl    RegWork21D, 2 \n\t"
+            "add    RegTargetDigitD, RegWork21D \n\t"
+
+            // .. -> ..1 に増やす
+            "shlx   RegWork21, RegDigitBits, RegTargetDigit \n\t"
+            "or     rax, RegWork21 \n\t"
+            "loop   201b \n\t"
+
+            // 13桁目
+            "xor    RegWork21D,    RegWork21D \n\t"
+            "cmp    RegPrevDigitD, RegRestD   \n\t"
+            "cmovnz RegDigitBitsD, RegWork21D  \n\t"
+            "shl    RegDigitBitsD, 1 \n\t"
+            "or     RegDigitBitsD, RegOneD \n\t"
+
+            "sub    RegRestD, RegOneD \n\t"
+            "mov    RegWork21D, RegRestD \n\t"
+            "shl    RegWork21D, 2 \n\t"
+            "add    RegRestD, RegWork21D \n\t"
+
+            "shlx   RegWork21, RegDigitBits, RegRest \n\t"
+            "or     rax, RegWork21 \n\t"
 
             // 次の候補を探す
             "31: \n\t"
-            ".set RegDigit,        r10 \n\t"
-            ".set RegPattern,      r11 \n\t"
-            ".set RegCheckedDigit, r12 \n\t"
-            ".set RegCountLow,     r13 \n\t"
+            ".set  RegTilePos,      r8  \n\t"
+            ".set  RegBitMask,      r9  \n\t"
+            ".set  RegDigit,        r10 \n\t"
+            ".set  RegPattern,      r11 \n\t"
+            ".set  RegCheckedDigit, r12 \n\t"
+            ".set  RegCountLow,     r13 \n\t"
 
             "xor  RegTilePos, RegTilePos \n\t" // 同じ牌が4つある
             "mov  RegBitMask, 0xf \n\t"        // ビットマスク
             "mov  RegDigit,   9 \n\t"          // 下一桁を9から順に減らしていく
-            "mov  ecx, 13 \n\t"  // ループ回数
+            "mov  ecx, 12 \n\t"  // ループ回数
             "mov  RegPattern, RegDigit \n\t"
 
             "32: \n\t"
@@ -671,29 +702,36 @@ namespace {
             "mov   RegCheckedDigit, RegNumber  \n\t"
             "and   RegCheckedDigit, RegBitMask \n\t"
             "cmp   RegCheckedDigit, RegPattern \n\t"
+            // 桁が見つかった
             "jnz   33f \n\t"
 
-            // 桁が見つかった
             "xor   RegCheckedDigit, RegCheckedDigit \n\t"  // 見つける数字を減らすときは1, 減らさないときは0
             "mov   RegCountLow, rcx \n\t"  // 残り10, 6, 2桁になったら、見つける数字を減らす
             "and   RegCountLow, 3 \n\t"
-            "cmp   RegCountLow, 2 \n\t"
+            "cmp   RegCountLow, 1 \n\t"
             "cmovz RegCheckedDigit, RegOne \n\t"
 
             "sub   RegDigit, RegCheckedDigit \n\t"
             "shl   RegBitMask, 4 \n\t"
             "add   RegTilePos, RegFour \n\t"   // 一つ上の桁をみる
-            "shlx  RegPattern, RegDigit, RegTilePos \n\t"
             "loop  32b \n\t"
+
+            // 最上桁
+            "mov   RegCheckedDigit, RegNumber  \n\t"
+            "shr   RegCheckedDigit, 48 \n\t"
+            "cmp   RegCheckedDigit, RegDigit \n\t"
+            // 桁が見つかった
+            "jnz   33f \n\t"
 
             // すべての桁を探したが、繰り上げられる桁が見つからなかった
             "mov   RegInvalid, RegOne \n\t"
             "jmp   41f \n\t"
 
             "33: \n\t"
-            "mov   RegDigit, rcx \n\t"  // 何桁目から下を繰り上げるか
-            "mov   ecx, 14 \n\t"
-            "sub   rcx, RegDigit \n\t"  // 何桁繰り上げるか
+            "mov   RegCheckedDigit, rcx \n\t"  // 何桁目から下を繰り上げるか
+            "mov   ecx, 12 \n\t"
+            "sub   rcx, RegCheckedDigit \n\t"  // 何桁繰り上げるか
+
             "mov   RegCheckedDigit, RegNumber \n\t"
             "shrx  RegDigit, RegCheckedDigit, RegTilePos \n\t"  // 繰り上げた後の値
             "and   RegDigit, 0xf \n\t"
@@ -703,6 +741,9 @@ namespace {
             ".set  RegDigitDiff, r13 \n\t"
             "xor   RegCount, RegCount \n\t"  // 何桁目で繰り上げる数字を1増やすか
             "mov   RegNextNumber, RegNumber \n\t"
+
+            "or    ecx, ecx \n\t"
+            "jz    35f \n\t"
 
             // 桁を繰り上げる
             "34: \n\t"
@@ -714,12 +755,17 @@ namespace {
             "xor   RegDigitDiff, RegDigitDiff \n\t"
             "add   RegCount, 1 \n\t"
             "test  RegCount, 3 \n\t"
-            "cmovz r13, RegOne \n\t"
+            "cmovz RegDigitDiff, RegOne \n\t"
             "add   RegDigit, RegDigitDiff \n\t"
             // 一つ下の桁をみる
             "sub   RegTilePos, RegFour \n\t"
             "shr   RegBitMask, 4 \n\t"
             "loop  34b \n\t"
+
+            // 最下桁
+            "35: \n\t"
+            "andn  RegNextNumber, RegBitMask, RegNextNumber \n\t"
+            "or    RegNextNumber, RegDigit \n\t"
 
             "41: \n\t"
             :"=&a"(tileMap),"=&b"(nextNumber),"+c"(enablePatternQ),"=&D"(invalid):"d"(number),"S"(patternCharSet.str):"r8","r9","r10","r11","r12","r13","r14","r15","memory");
