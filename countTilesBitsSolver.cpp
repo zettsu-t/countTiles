@@ -560,6 +560,7 @@ namespace {
 
         // XMMレジスタから文字を取り出すパターンを用意して、文字列を受け取る
         // 最後の一文字は受け取らないので、オーバラン防止用に0固定にする
+        // 複数byte単位より、1byte単位の方が速い
         PatternCharSet patternCharSet = {{14, 5, 13, 4, 12, 3, 11, 2, 10, 1, 9, 0, 8, 6, 7, 15, 0}};
 
         asm (
@@ -574,7 +575,7 @@ namespace {
             ".set  RegOne,   r15  \n\t"
             ".set  RegOneD,  r15d \n\t"
 
-            "xor   RegInvalidD, RegInvalidD \n\t"  // falseにする
+            "xor   RegInvalidD, RegInvalidD \n\t"
             "mov   RegFourD, 4 \n\t"  // 定数4
             "mov   RegOneD,  1 \n\t"  // 定数1
 
@@ -593,7 +594,7 @@ namespace {
             // xmmレジスタを'0'で埋める
             "mov      RegDigitSetD, ConstCharZero \n\t"
             "vpinsrd  XRegString, XRegString, RegDigitSetD, 0 \n\t"
-            "xorps    XRegDigitSet, XRegDigitSet \n\t"
+            "vpxor    XRegDigitSet, XRegDigitSet, XRegDigitSet \n\t"
             "vpshufb  XRegString, XRegString, XRegDigitSet \n\t"
 
             // 奇数番目の桁と偶数番目の桁を分ける
@@ -640,7 +641,7 @@ namespace {
             "xor    eax, eax \n\t"
             "mov    ecx, 12 \n\t"  // 最後の桁は別処理
 
-            "201: \n\t"
+            "21: \n\t"
             // 一桁取り出す
             "mov    RegTargetDigit,  RegRest \n\t"
             "and    RegTargetDigitD, RegDigitBitMaskD \n\t"
@@ -664,7 +665,7 @@ namespace {
             // .. -> ..1 に増やす
             "shlx   RegWork21, RegDigitBits, RegTargetDigit \n\t"
             "or     rax, RegWork21 \n\t"
-            "loop   201b \n\t"
+            "loop   21b \n\t"
 
             // 13桁目
             "xor    RegWork21D,    RegWork21D \n\t"
@@ -720,12 +721,8 @@ namespace {
             "mov   RegCheckedDigit, RegNumber  \n\t"
             "shr   RegCheckedDigit, 48 \n\t"
             "cmp   RegCheckedDigit, RegDigit \n\t"
-            // 桁が見つかった
-            "jnz   33f \n\t"
-
             // すべての桁を探したが、繰り上げられる桁が見つからなかった
-            "mov   RegInvalid, RegOne \n\t"
-            "jmp   41f \n\t"
+            "jz    41f \n\t"
 
             "33: \n\t"
             "mov   RegCheckedDigit, rcx \n\t"  // 何桁目から下を繰り上げるか
@@ -766,8 +763,12 @@ namespace {
             "35: \n\t"
             "andn  RegNextNumber, RegBitMask, RegNextNumber \n\t"
             "or    RegNextNumber, RegDigit \n\t"
+            "sub   RegInvalid, RegOne \n\t"  // -1にする
 
             "41: \n\t"
+            "add   RegInvalid, RegOne \n\t"  // 0または1にする
+
+            "42: \n\t"
             :"=&a"(tileMap),"=&b"(nextNumber),"+c"(enablePatternQ),"=&D"(invalid):"d"(number),"S"(patternCharSet.str):"r8","r9","r10","r11","r12","r13","r14","r15","memory");
 
         if (enablePattern) {

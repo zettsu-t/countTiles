@@ -11,6 +11,7 @@ http://www.itmedia.co.jp/enterprise/articles/1004/03/news002_2.html
 * Windows 10 Anniversary Update 64bit Edition
 * Cygwin 64bit version (2.6.0)
 * LLVM + clang (3.8.1 : Cygwin)
+* GCC (6.3.0 : MinGW / 5.4.0 Cygwin)
 * Ruby (2.2.5p319 : Cygwin)
 * GHC 8.0.1
 
