@@ -563,6 +563,19 @@ namespace {
         // 複数byte単位より、1byte単位の方が速い
         PatternCharSet patternCharSet = {{14, 5, 13, 4, 12, 3, 11, 2, 10, 1, 9, 0, 8, 6, 7, 15, 0}};
 
+        union XmmPatternSet {
+            uint8_t value[48];
+            __m128  xReg[3];   // XMMレジスタのアラインメント用
+        };
+
+        static const XmmPatternSet xmmPatternSet = {{
+            9,9,9,9, 8,8,8,8, 7,7,7,7, 6,0,0,0,            // これ以上は牌を列挙するパターンがない最後のパターン
+            8,0,9,1, 10,2,11,3, 12,4,13,5, 14,255,255,255, // 奇数番目と偶数番目の桁をvpshufbで入れ替えるパターン
+            0x34, 0x33, 0x23, 0x22, 0x12, 0x11, 0x01, 0,   // 0x1111222233334を各桁に足す
+            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80 // vpcmpeqb の結果を取り出すビットマスク
+        }};
+        register auto pXmmValueSet asm ("r13") = &xmmPatternSet;  // asm実行後は破壊される
+
         asm (
             ".set  RegTileMap,    rax \n\t"
             ".set  RegNextNumber, rbx \n\t"
@@ -570,32 +583,26 @@ namespace {
             ".set  RegInvalidD,   edi \n\t"
             ".set  RegNumber,     rdx \n\t"
             ".set  RegPatternCharSet, rsi \n\t"
-            ".set  RegFour,  r14  \n\t"
-            ".set  RegFourD, r14d \n\t"
-            ".set  RegOne,   r15  \n\t"
-            ".set  RegOneD,  r15d \n\t"
+            ".set  RegXmmPtr, r13  \n\t"  // 破壊するレジスタ変数
+            ".set  RegFour,   r14  \n\t"
+            ".set  RegFourD,  r14d \n\t"
+            ".set  RegOne,    r15  \n\t"
+            ".set  RegOneD,   r15d \n\t"
 
             "xor   RegInvalidD, RegInvalidD \n\t"
             "mov   RegFourD, 4 \n\t"  // 定数4
             "mov   RegOneD,  1 \n\t"  // 定数1
-
-            "or    ecx, ecx \n\t"
-            "jz    31f \n\t"
 
             // numberを文字列にする
             ".set  RegOddSet,    r8 \n\t"
             ".set  RegEvenSet,   r9 \n\t"
             ".set  RegDigitSet,  r10 \n\t"
             ".set  RegDigitSetD, r10d \n\t"
-            ".set  XRegString,   xmm14 \n\t"
-            ".set  XRegDigitSet, xmm15 \n\t"
+            ".set  XRegConst,     xmm12 \n\t"
+            ".set  XRegCmpResult, xmm13 \n\t"
+            ".set  XRegString,    xmm14 \n\t"
+            ".set  XRegDigitSet,  xmm15 \n\t"
             ".set  ConstCharZero, '0'  \n\t"
-
-            // xmmレジスタを'0'で埋める
-            "mov      RegDigitSetD, ConstCharZero \n\t"
-            "vpinsrd  XRegString, XRegString, RegDigitSetD, 0 \n\t"
-            "vpxor    XRegDigitSet, XRegDigitSet, XRegDigitSet \n\t"
-            "vpshufb  XRegString, XRegString, XRegDigitSet \n\t"
 
             // 奇数番目の桁と偶数番目の桁を分ける
             "mov     RegDigitSet, 0xf0f0f0f0f0f0f \n\t"
@@ -604,6 +611,25 @@ namespace {
             "mov     RegEvenSet, RegNumber \n\t"
             "and     RegOddSet,  RegDigitSet \n\t"
             "and     RegEvenSet, RegDigitSet \n\t"
+
+            // 奇数番目の桁と偶数番目の桁を順序通りに戻す
+            "vpinsrq  XRegCmpResult, XRegCmpResult, RegOddSet,  0 \n\t"
+            "vpinsrq  XRegCmpResult, XRegCmpResult, RegEvenSet, 1 \n\t"
+            "vpshufb  XRegCmpResult, XRegCmpResult, [RegXmmPtr + 16] \n\t"
+            // 最後のパターンと比較する
+            "vpcmpeqb XRegCmpResult, XRegCmpResult, [RegXmmPtr] \n\t"
+            // 後で使う
+            "vmovdqa  XRegConst, [RegXmmPtr + 32] \n\t"
+            // 以後RegXmmPtrは別用途に使う
+
+            "or    ecx, ecx \n\t"
+            "jz    31f \n\t"
+
+            // xmmレジスタを'0'で埋める
+            "mov      RegDigitSetD, ConstCharZero \n\t"
+            "vpinsrd  XRegString, XRegString, RegDigitSetD, 0 \n\t"
+            "vpxor    XRegDigitSet, XRegDigitSet, XRegDigitSet \n\t"
+            "vpshufb  XRegString, XRegString, XRegDigitSet \n\t"
 
             // 最上位の2 bytesを"\n:"-"00"にする
             "mov      RegDigitSetD, 0xda0a \n\t"
@@ -684,84 +710,65 @@ namespace {
 
             // 次の候補を探す
             "31: \n\t"
-            ".set  RegTilePos,      r8  \n\t"
-            ".set  RegBitMask,      r9  \n\t"
-            ".set  RegDigit,        r10 \n\t"
-            ".set  RegPattern,      r11 \n\t"
-            ".set  RegCheckedDigit, r12 \n\t"
-            ".set  RegCountLow,     r13 \n\t"
+            ".set  RegTilePos,   rcx  \n\t"
+            ".set  RegTilePosD,  ecx  \n\t"
+            ".set  RegBitMask,   r8   \n\t"
+            ".set  RegDigit,     r9   \n\t"
+            ".set  RegDigitD,    r9d  \n\t"
+            ".set  RegDigitEx,   r10  \n\t"
+            ".set  RegDigitExD,  r10d \n\t"
+            ".set  RegPattern,   r11  \n\t"
+            ".set  RegCountLow,  r12  \n\t"
 
-            "xor  RegTilePos, RegTilePos \n\t" // 同じ牌が4つある
-            "mov  RegBitMask, 0xf \n\t"        // ビットマスク
-            "mov  RegDigit,   9 \n\t"          // 下一桁を9から順に減らしていく
-            "mov  ecx, 12 \n\t"  // ループ回数
-            "mov  RegPattern, RegDigit \n\t"
+            // 等しい桁は0xff, 異なる桁は0 : MSBだけ取り出す
+            "vpextrq  RegPattern, XRegConst,     1 \n\t"
+            "vpextrq  RegDigit,   XRegCmpResult, 0 \n\t"
+            "vpextrq  RegDigitEx, XRegCmpResult, 1 \n\t"
 
-            "32: \n\t"
-            // 下の桁から上の桁に向かってRegDigitを探す
-            "shlx  RegPattern, RegDigit, RegTilePos \n\t"
-            "mov   RegCheckedDigit, RegNumber  \n\t"
-            "and   RegCheckedDigit, RegBitMask \n\t"
-            "cmp   RegCheckedDigit, RegPattern \n\t"
-            // 桁が見つかった
-            "jnz   33f \n\t"
+            // 各byteのLSBだけ取り出して、16bitにまとめる。上位3桁は元々0なので、111bになる。
+            "pext   RegDigit, RegDigit, RegPattern \n\t"
+            "pext   RegDigitEx, RegDigitEx, RegPattern \n\t"
+            "shl    RegDigitExD, 8 \n\t"
+            "or     RegDigitD, RegDigitExD \n\t"
 
-            "xor   RegCheckedDigit, RegCheckedDigit \n\t"  // 見つける数字を減らすときは1, 減らさないときは0
-            "mov   RegCountLow, rcx \n\t"  // 残り10, 6, 2桁になったら、見つける数字を減らす
-            "and   RegCountLow, 3 \n\t"
-            "cmp   RegCountLow, 1 \n\t"
-            "cmovz RegCheckedDigit, RegOne \n\t"
-
-            "sub   RegDigit, RegCheckedDigit \n\t"
-            "shl   RegBitMask, 4 \n\t"
-            "add   RegTilePos, RegFour \n\t"   // 一つ上の桁をみる
-            "loop  32b \n\t"
-
-            // 最上桁
-            "mov   RegCheckedDigit, RegNumber  \n\t"
-            "shr   RegCheckedDigit, 48 \n\t"
-            "cmp   RegCheckedDigit, RegDigit \n\t"
             // すべての桁を探したが、繰り上げられる桁が見つからなかった
-            "jz    41f \n\t"
+            "cmp    RegDigitD, 0xffff \n\t"
+            "jz     41f \n\t"
 
-            "33: \n\t"
-            "mov   RegCheckedDigit, rcx \n\t"  // 何桁目から下を繰り上げるか
-            "mov   ecx, 12 \n\t"
-            "sub   rcx, RegCheckedDigit \n\t"  // 何桁繰り上げるか
+            // 最下桁から何桁等しいか調べる
+            "not    RegDigitD \n\t"
+            "tzcnt  RegDigitExD, RegDigitD \n\t"
+            "mov    RegTilePosD, RegDigitExD \n\t"
+            "shl    RegTilePosD, 2 \n\t"   // 置き換える最も上の桁のbyte位置
+            "shrx   RegDigit,  RegNumber, RegTilePos \n\t"
+            "and    RegDigitD, 0xf \n\t"    // 繰り上げる前の値
 
-            "mov   RegCheckedDigit, RegNumber \n\t"
-            "shrx  RegDigit, RegCheckedDigit, RegTilePos \n\t"  // 繰り上げた後の値
-            "and   RegDigit, 0xf \n\t"
-            "add   RegDigit, RegOne \n\t"
-
-            ".set  RegCount,     r12 \n\t"
-            ".set  RegDigitDiff, r13 \n\t"
-            "xor   RegCount, RegCount \n\t"  // 何桁目で繰り上げる数字を1増やすか
+            "add   RegTilePos, RegFour \n\t"
+            "mov   RegBitMask, -1 \n\t"
+            "shlx  RegBitMask, RegBitMask, RegTilePos \n\t"
             "mov   RegNextNumber, RegNumber \n\t"
+            "and   RegNextNumber, RegBitMask  \n\t"  // 繰り上げた後の値以外
 
-            "or    ecx, ecx \n\t"
-            "jz    35f \n\t"
+            "mov   RegDigitExD, RegDigitD \n\t"
+            "shl   RegDigitExD, 4 \n\t"
+            "or    RegDigitD, RegDigitExD \n\t"
+            "mov   RegDigitExD, RegDigitD \n\t"
+            "shl   RegDigitExD, 8 \n\t"
+            "or    RegDigitD, RegDigitExD \n\t"
+            "mov   RegDigitExD, RegDigitD \n\t"
+            "shl   RegDigitExD, 16 \n\t"
+            "or    RegDigitD, RegDigitExD \n\t"
 
-            // 桁を繰り上げる
-            "34: \n\t"
-            "shlx  RegPattern, RegDigit, RegTilePos \n\t"
-            "andn  RegNextNumber, RegBitMask, RegNextNumber \n\t"
-            "or    RegNextNumber, RegPattern \n\t"
+            "mov   RegDigitEx, RegDigit \n\t"
+            "shl   RegDigitEx, 32 \n\t"
+            "or    RegDigit, RegDigitEx \n\t"
+            "vpextrq  RegDigitEx, XRegConst, 0 \n\t"
+            "add   RegDigit, RegDigitEx \n\t"
 
-            // 同じ牌が続いたら、牌の番号を1増やす
-            "xor   RegDigitDiff, RegDigitDiff \n\t"
-            "add   RegCount, 1 \n\t"
-            "test  RegCount, 3 \n\t"
-            "cmovz RegDigitDiff, RegOne \n\t"
-            "add   RegDigit, RegDigitDiff \n\t"
-            // 一つ下の桁をみる
-            "sub   RegTilePos, RegFour \n\t"
-            "shr   RegBitMask, 4 \n\t"
-            "loop  34b \n\t"
-
-            // 最下桁
-            "35: \n\t"
-            "andn  RegNextNumber, RegBitMask, RegNextNumber \n\t"
+            "mov   RegDigitExD, 13 * 4 \n\t"
+            "sub   RegDigitExD, RegTilePosD \n\t"
+            "shrx  RegDigit, RegDigit, RegDigitEx \n\t"
+            "andn  RegDigit, RegBitMask, RegDigit \n\t"
             "or    RegNextNumber, RegDigit \n\t"
             "sub   RegInvalid, RegOne \n\t"  // -1にする
 
@@ -769,7 +776,7 @@ namespace {
             "add   RegInvalid, RegOne \n\t"  // 0または1にする
 
             "42: \n\t"
-            :"=&a"(tileMap),"=&b"(nextNumber),"+c"(enablePatternQ),"=&D"(invalid):"d"(number),"S"(patternCharSet.str):"r8","r9","r10","r11","r12","r13","r14","r15","memory");
+            :"=&a"(tileMap),"=&b"(nextNumber),"+c"(enablePatternQ),"=&D"(invalid),"+r"(pXmmValueSet):"d"(number),"S"(patternCharSet.str):"r8","r9","r10","r11","r12","r14","r15","memory");
 
         if (enablePattern) {
             std::string patternStr = patternCharSet.str;
