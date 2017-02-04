@@ -139,7 +139,7 @@ endif
 
 # 最速版だけ実行する
 checkfastest: $(TARGET_BITS)
-	$(call measuretime, ./$(TARGET_BITS), , $(LOG_BITS))
+	$(call measuretime, ./$(TARGET_BITS), ,  $(LOG_BITS))
 	$(call measuretime, ./$(TARGET_BITS),-N, $(LOG_BITS))
 ifeq ($(BUILD_ON_MINGW),)
 	test $(call getfilesize, $(LOG_BITS)) -eq $(SIZE_OF_LOG)

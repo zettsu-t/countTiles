@@ -562,11 +562,13 @@ namespace {
         // 最後の一文字は受け取らないので、オーバラン防止用に0固定にする
         // 複数byte単位より、1byte単位の方が速い
         PatternCharSet patternCharSet = {{14, 5, 13, 4, 12, 3, 11, 2, 10, 1, 9, 0, 8, 6, 7, 15, 0}};
+        auto pPatternCharSet = &patternCharSet;  // asm実行後は破壊される
 
         union XmmPatternSet {
             uint8_t value[48];
             __m128  xReg[3];   // XMMレジスタのアラインメント用
         };
+        static_assert((alignof(XmmPatternSet) % 16) == 0, "Unexpected xmmRegister alignment");
 
         static const XmmPatternSet xmmPatternSet = {{
             9,9,9,9, 8,8,8,8, 7,7,7,7, 6,0,0,0,            // これ以上は牌を列挙するパターンがない最後のパターン
@@ -581,8 +583,8 @@ namespace {
             ".set  RegNextNumber, rbx \n\t"
             ".set  RegInvalid,    rdi \n\t"
             ".set  RegInvalidD,   edi \n\t"
-            ".set  RegNumber,     rdx \n\t"
-            ".set  RegPatternCharSet, rsi \n\t"
+            ".set  RegNumber,     rsi \n\t"
+            ".set  RegPatternCharSet, rdx \n\t"  // 後で乗算で破壊する
             ".set  RegXmmPtr, r13  \n\t"  // 破壊するレジスタ変数
             ".set  RegFour,   r14  \n\t"
             ".set  RegFourD,  r14d \n\t"
@@ -748,20 +750,10 @@ namespace {
             "shlx  RegBitMask, RegBitMask, RegTilePos \n\t"
             "mov   RegNextNumber, RegNumber \n\t"
             "and   RegNextNumber, RegBitMask  \n\t"  // 繰り上げた後の値以外
+            // 掛けられる数はrdx固定
+            "mov   RegPatternCharSet, 0x1111111111111 \n\t"
+            "mulx  RegDigitEx, RegDigit, RegDigit \n\t"
 
-            "mov   RegDigitExD, RegDigitD \n\t"
-            "shl   RegDigitExD, 4 \n\t"
-            "or    RegDigitD, RegDigitExD \n\t"
-            "mov   RegDigitExD, RegDigitD \n\t"
-            "shl   RegDigitExD, 8 \n\t"
-            "or    RegDigitD, RegDigitExD \n\t"
-            "mov   RegDigitExD, RegDigitD \n\t"
-            "shl   RegDigitExD, 16 \n\t"
-            "or    RegDigitD, RegDigitExD \n\t"
-
-            "mov   RegDigitEx, RegDigit \n\t"
-            "shl   RegDigitEx, 32 \n\t"
-            "or    RegDigit, RegDigitEx \n\t"
             "vpextrq  RegDigitEx, XRegConst, 0 \n\t"
             "add   RegDigit, RegDigitEx \n\t"
 
@@ -776,7 +768,10 @@ namespace {
             "add   RegInvalid, RegOne \n\t"  // 0または1にする
 
             "42: \n\t"
-            :"=&a"(tileMap),"=&b"(nextNumber),"+c"(enablePatternQ),"=&D"(invalid),"+r"(pXmmValueSet):"d"(number),"S"(patternCharSet.str):"r8","r9","r10","r11","r12","r14","r15","memory");
+            :"=&a"(tileMap),"=&b"(nextNumber),"+c"(enablePatternQ),"+d"(pPatternCharSet),"=&D"(invalid),"+r"(pXmmValueSet):"S"(number):"r8","r9","r10","r11","r12","r14","r15","memory");
+
+        pPatternCharSet = nullptr;
+        pXmmValueSet = nullptr;
 
         if (enablePattern) {
             std::string patternStr = patternCharSet.str;
